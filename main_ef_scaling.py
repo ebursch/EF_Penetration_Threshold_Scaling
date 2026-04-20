@@ -5,13 +5,18 @@ inductance (l_i), major radius (R_0), and plasma current (I_p) and the
 empirical error field penetration threshold is calculated using Monte Carlo
 uncertainty propagation.
 
+Users can either enter single values manually or upload a CSV file with
+columns: n_e, B_T, beta_n, l_i, R_0, I_p. Results are displayed in a
+table and can be exported to CSV.
+
 If a scaling uses beta_n/l_i, the ratio is computed internally from the
 two separate inputs.
 """
 import tkinter as tk
-from tkinter import messagebox
-from tkinter import ttk
+from tkinter import messagebox, ttk, filedialog
 import math
+import csv
+import os
 import numpy as np
 
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
@@ -20,6 +25,7 @@ import matplotlib as mpl
 
 formula_canvas_widget = None
 result_canvas_widget = None
+batch_results = []  # store for CSV export
 
 
 def get_formula_latex(name: str) -> str:
@@ -53,9 +59,6 @@ def get_formula_latex(name: str) -> str:
         )
 
 
-# ── Scaling parameters: {key: (nominal, uncertainty)} ──
-# 'C' is the log10 coefficient; all others are exponents.
-# 'bnli_exp' flags that the scaling uses beta_n / l_i (computed internally).
 SCALINGS = {
     "2026 O,L WLS": {
         "C":        (-4.26, 0.09),
@@ -91,52 +94,32 @@ SCALINGS = {
     },
 }
 
-# Map scaling-dict keys → physical variable names in test_dict
 PARAM_KEY_MAP = {
-    "bnli_exp": "beta_n_l_i",   # ratio computed before MC call
+    "bnli_exp": "beta_n_l_i",
     "ip_exp":   "I_p",
     "R_exp":    "R_0",
     "ne_exp":   "n_e",
     "BT_exp":   "B_T",
 }
 
+# Required CSV columns (case-insensitive matching performed at load time)
+REQUIRED_COLUMNS = {"n_e", "B_T", "beta_n", "l_i", "R_0", "I_p"}
+
+
+# ─────────────────── Monte Carlo core ────────────────────
 
 def monte_carlo_threshold(test_dict, scaling_title,
                           dist="normal", nsample=int(1e6), bins=1000):
-    """
-    Monte Carlo uncertainty propagation for the error-field penetration
-    threshold.
-
-    Parameters
-    ----------
-    test_dict : dict
-        Must contain: n_e, B_T, beta_n, l_i, R_0, I_p.
-        beta_n / l_i is computed internally when the scaling requires it.
-    scaling_title : str
-        Key into the SCALINGS dict.
-    dist : str
-        'normal', 'flat', or 'normal truncated'
-    nsample : int
-        Number of Monte Carlo samples.
-    bins : int
-        Number of histogram bins for the PDF.
-
-    Returns
-    -------
-    delta_nominal, delta_distrib, pdf, bin_edges, psigL, psigU
-    """
     nsample = int(nsample)
     params = SCALINGS[scaling_title]
     length = len(params)
 
-    # ── Build an internal working copy with beta_n/l_i pre-computed ──
     work = dict(test_dict)
     if "bnli_exp" in params:
         if work["l_i"] == 0:
-            raise ValueError("l_i must be non-zero (division by zero).")
+            raise ValueError("l_i must be non-zero.")
         work["beta_n_l_i"] = work["beta_n"] / work["l_i"]
 
-    # ── 1. Draw random deviates ──────────────────────────────────────
     if dist == "flat":
         rands = np.random.rand(length, nsample)
     elif dist == "normal":
@@ -151,15 +134,12 @@ def monte_carlo_threshold(test_dict, scaling_title,
     else:
         raise ValueError(f"Unknown distribution: {dist}")
 
-    # ── 2. Build MC-sampled exponent arrays ──────────────────────────
     alpha_nom = {}
     alpha_mc  = {}
-
     for idx, (key, (val, unc)) in enumerate(params.items()):
         alpha_nom[key] = val
         alpha_mc[key]  = val + unc * rands[idx]
 
-    # ── 3. Compute nominal δ and full MC distribution ────────────────
     delta_nominal = np.float64(1.0)
     delta_distrib = np.ones(nsample, dtype=np.float64)
 
@@ -168,19 +148,19 @@ def monte_carlo_threshold(test_dict, scaling_title,
             delta_nominal = delta_nominal * 10.0 ** alpha_nom[key]
             delta_distrib = delta_distrib * 10.0 ** alpha_mc[key]
         else:
-            phys_key = PARAM_KEY_MAP[key]
-            x = work[phys_key]
+            x = work[PARAM_KEY_MAP[key]]
             delta_nominal = delta_nominal * x ** alpha_nom[key]
             delta_distrib = delta_distrib * x ** alpha_mc[key]
 
-    # ── 4. Statistics ────────────────────────────────────────────────
     pdf, bin_edges = np.histogram(delta_distrib, bins=bins, density=True)
     psigL, psigU = np.percentile(delta_distrib, [15.87, 84.13])
 
     return delta_nominal, delta_distrib, pdf, bin_edges, psigL, psigU
 
 
-def calculate_threshold():
+# ─────────────────── Single-point calc ───────────────────
+
+def calculate_threshold_single():
     global result_canvas_widget
 
     try:
@@ -199,12 +179,8 @@ def calculate_threshold():
         return
 
     test_dict = {
-        "n_e":    n_e,
-        "B_T":    abs(B_T),
-        "beta_n": beta_n,
-        "l_i":    l_i,
-        "R_0":    R_0,
-        "I_p":    abs(I_p),
+        "n_e": n_e, "B_T": abs(B_T), "beta_n": beta_n,
+        "l_i": l_i, "R_0": R_0, "I_p": abs(I_p),
     }
 
     s       = scaling_var.get()
@@ -214,43 +190,34 @@ def calculate_threshold():
     try:
         (delta_nominal, delta_distrib,
          pdf, bin_edges, psigL, psigU) = monte_carlo_threshold(
-            test_dict, s, dist=dist, nsample=nsample
-        )
+            test_dict, s, dist=dist, nsample=nsample)
     except Exception as e:
         messagebox.showerror("Calculation Error", str(e))
         return
 
     sigma_approx = (psigU - psigL) / 2.0
 
-    # ── Update result plot ───────────────────────────────────────────
     if result_canvas_widget is not None:
         result_canvas_widget.destroy()
         result_canvas_widget = None
 
     mpl.rcParams['mathtext.fontset'] = 'dejavuserif'
-
     fig = Figure(figsize=(7, 3.5), dpi=120)
     ax = fig.add_subplot(111)
-
-    bin_centres = 0.5 * (bin_edges[:-1] + bin_edges[1:])
-    ax.fill_between(bin_centres, pdf, alpha=0.35, color="steelblue")
-    ax.plot(bin_centres, pdf, color="steelblue", lw=1.2)
-
+    bc = 0.5 * (bin_edges[:-1] + bin_edges[1:])
+    ax.fill_between(bc, pdf, alpha=0.35, color="steelblue")
+    ax.plot(bc, pdf, color="steelblue", lw=1.2)
     ax.axvline(delta_nominal, color="k", ls="-",  lw=1.5, label="Nominal")
-    ax.axvline(psigL,         color="r", ls="--", lw=1.2,
-               label=rf"$-1\sigma$ ({psigL:.2e})")
-    ax.axvline(psigU,         color="r", ls="--", lw=1.2,
-               label=rf"$+1\sigma$ ({psigU:.2e})")
-
+    ax.axvline(psigL, color="r", ls="--", lw=1.2, label=rf"$-1\sigma$ ({psigL:.2e})")
+    ax.axvline(psigU, color="r", ls="--", lw=1.2, label=rf"$+1\sigma$ ({psigU:.2e})")
     ax.set_xlabel(r"$\delta$  (Error-field penetration threshold)")
     ax.set_ylabel("Probability density")
     ax.set_title(
         rf"$\delta = {delta_nominal:.3e}$"
         rf"$\;(-{delta_nominal - psigL:.2e}\;/\;+{psigU - delta_nominal:.2e})$"
-        f"\n{s}  |  MC samples: {nsample:,}  |  dist: {dist}"
+        f"\n{s}  |  MC: {nsample:,}  |  dist: {dist}"
         f"  |  $\\beta_n/l_i$ = {beta_n / l_i:.3f}",
-        fontsize=10,
-    )
+        fontsize=10)
     ax.legend(fontsize=8)
     fig.tight_layout()
 
@@ -259,13 +226,221 @@ def calculate_threshold():
     result_canvas_widget = canvas.get_tk_widget()
     result_canvas_widget.pack(fill="both", expand=True)
 
-    print(
-        f"{delta_nominal:.3e} "
-        f"(-{delta_nominal - psigL:.3e} / +{psigU - delta_nominal:.3e}) "
-        f"~ +/- {sigma_approx:.3e}: "
-        f"Nominal Value (-x,+y of 1 sigma) ~ +/- 1 sigma"
-    )
 
+# ─────────────────── CSV / batch calc ────────────────────
+
+def load_csv_and_calculate():
+    global batch_results, result_canvas_widget
+
+    filepath = filedialog.askopenfilename(
+        title="Select CSV File",
+        filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
+    )
+    if not filepath:
+        return
+
+    # ── Read & validate CSV ──────────────────────────────────────
+    try:
+        with open(filepath, newline="") as f:
+            reader = csv.DictReader(f)
+            raw_fieldnames = reader.fieldnames
+            if raw_fieldnames is None:
+                raise ValueError("CSV file appears to be empty.")
+
+            # Build case-insensitive column mapping
+            col_map = {}
+            for raw in raw_fieldnames:
+                stripped = raw.strip()
+                for req in REQUIRED_COLUMNS:
+                    if stripped.lower() == req.lower():
+                        col_map[req] = raw  # map required name → actual header
+            missing = REQUIRED_COLUMNS - col_map.keys()
+            if missing:
+                raise ValueError(
+                    f"CSV is missing required columns: {', '.join(sorted(missing))}\n"
+                    f"Found columns: {', '.join(raw_fieldnames)}\n"
+                    f"Required: {', '.join(sorted(REQUIRED_COLUMNS))}"
+                )
+            rows = list(reader)
+    except Exception as e:
+        messagebox.showerror("CSV Error", str(e))
+        return
+
+    if len(rows) == 0:
+        messagebox.showerror("CSV Error", "CSV file contains no data rows.")
+        return
+
+    s       = scaling_var.get()
+    dist    = dist_var.get()
+    nsample = int(float(nsample_var.get()))
+
+    batch_results = []
+    errors = []
+
+    for i, row in enumerate(rows, start=1):
+        try:
+            n_e    = float(row[col_map["n_e"]])
+            B_T    = float(row[col_map["B_T"]])
+            beta_n = float(row[col_map["beta_n"]])
+            l_i    = float(row[col_map["l_i"]])
+            R_0    = float(row[col_map["R_0"]])
+            I_p    = float(row[col_map["I_p"]])
+
+            if l_i == 0:
+                raise ValueError("l_i = 0")
+
+            test_dict = {
+                "n_e": n_e, "B_T": abs(B_T), "beta_n": beta_n,
+                "l_i": l_i, "R_0": R_0, "I_p": abs(I_p),
+            }
+
+            (delta_nom, _, _, _, psigL, psigU) = monte_carlo_threshold(
+                test_dict, s, dist=dist, nsample=nsample)
+
+            minus = delta_nom - psigL
+            plus  = psigU - delta_nom
+            sigma = (plus + minus) / 2.0
+
+            batch_results.append({
+                "row":       i,
+                "n_e":       n_e,
+                "B_T":       B_T,
+                "beta_n":    beta_n,
+                "l_i":       l_i,
+                "beta_n_l_i": beta_n / l_i,
+                "R_0":       R_0,
+                "I_p":       I_p,
+                "delta_nom": delta_nom,
+                "minus":     minus,
+                "plus":      plus,
+                "sigma":     sigma,
+            })
+
+        except Exception as e:
+            errors.append(f"Row {i}: {e}")
+
+    if errors:
+        messagebox.showwarning(
+            "Batch Warnings",
+            f"{len(errors)} row(s) had errors:\n" + "\n".join(errors[:20]))
+
+    if not batch_results:
+        messagebox.showerror("Batch Error", "No valid results were produced.")
+        return
+
+    # ── Display results in a Treeview table ──────────────────────
+    if result_canvas_widget is not None:
+        result_canvas_widget.destroy()
+        result_canvas_widget = None
+
+    # Clear anything in result_frame
+    for w in result_frame.winfo_children():
+        w.destroy()
+
+    columns = ("row", "n_e", "B_T", "β_n", "l_i", "β_n/l_i",
+               "R_0", "I_p", "δ_nom", "−1σ", "+1σ", "≈σ")
+
+    container = tk.Frame(result_frame)
+    container.pack(fill="both", expand=True)
+
+    tree_scroll_y = ttk.Scrollbar(container, orient="vertical")
+    tree_scroll_x = ttk.Scrollbar(container, orient="horizontal")
+    tree = ttk.Treeview(
+        container, columns=columns, show="headings",
+        yscrollcommand=tree_scroll_y.set,
+        xscrollcommand=tree_scroll_x.set,
+        height=min(len(batch_results), 20),
+    )
+    tree_scroll_y.config(command=tree.yview)
+    tree_scroll_x.config(command=tree.xview)
+
+    for col in columns:
+        tree.heading(col, text=col)
+        tree.column(col, width=90, anchor="center")
+
+    for r in batch_results:
+        tree.insert("", "end", values=(
+            r["row"],
+            f"{r['n_e']:.4g}",
+            f"{r['B_T']:.4g}",
+            f"{r['beta_n']:.4g}",
+            f"{r['l_i']:.4g}",
+            f"{r['beta_n_l_i']:.4g}",
+            f"{r['R_0']:.4g}",
+            f"{r['I_p']:.4g}",
+            f"{r['delta_nom']:.3e}",
+            f"{r['minus']:.3e}",
+            f"{r['plus']:.3e}",
+            f"{r['sigma']:.3e}",
+        ))
+
+    tree_scroll_y.pack(side="right", fill="y")
+    tree_scroll_x.pack(side="bottom", fill="x")
+    tree.pack(side="left", fill="both", expand=True)
+
+    # Summary label
+    summary_frame = tk.Frame(result_frame)
+    summary_frame.pack(fill="x", pady=4)
+    tk.Label(
+        summary_frame,
+        text=f"Processed {len(batch_results)} row(s)  |  Scaling: {s}  |  "
+             f"MC samples: {nsample:,}  |  dist: {dist}",
+        font=("TkDefaultFont", 9, "italic"),
+    ).pack(side="left", padx=8)
+
+    tk.Button(
+        summary_frame, text="Export Results to CSV",
+        command=export_batch_results,
+    ).pack(side="right", padx=8)
+
+    # Update the stored widget ref so single-mode can clear it later
+    result_canvas_widget = container
+
+
+def export_batch_results():
+    if not batch_results:
+        messagebox.showwarning("Export", "No results to export.")
+        return
+
+    filepath = filedialog.asksaveasfilename(
+        title="Save Results CSV",
+        defaultextension=".csv",
+        filetypes=[("CSV files", "*.csv")],
+    )
+    if not filepath:
+        return
+
+    fieldnames = [
+        "row", "n_e", "B_T", "beta_n", "l_i", "beta_n_l_i",
+        "R_0", "I_p", "delta_nominal", "minus_1sigma",
+        "plus_1sigma", "approx_sigma",
+    ]
+
+    try:
+        with open(filepath, "w", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            for r in batch_results:
+                writer.writerow({
+                    "row":            r["row"],
+                    "n_e":            r["n_e"],
+                    "B_T":            r["B_T"],
+                    "beta_n":         r["beta_n"],
+                    "l_i":            r["l_i"],
+                    "beta_n_l_i":     r["beta_n_l_i"],
+                    "R_0":            r["R_0"],
+                    "I_p":            r["I_p"],
+                    "delta_nominal":  r["delta_nom"],
+                    "minus_1sigma":   r["minus"],
+                    "plus_1sigma":    r["plus"],
+                    "approx_sigma":   r["sigma"],
+                })
+        messagebox.showinfo("Export", f"Results saved to:\n{filepath}")
+    except Exception as e:
+        messagebox.showerror("Export Error", str(e))
+
+
+# ─────────────────── Formula display ─────────────────────
 
 def update_formula(event=None):
     global formula_canvas_widget
@@ -288,91 +463,121 @@ def update_formula(event=None):
     formula_canvas_widget.pack(fill="both", expand=True)
 
 
-# ────────────────────── GUI layout ──────────────────────
+# ────────────────────── GUI layout ───────────────────────
+
 root = tk.Tk()
 root.title("Error Field Penetration Threshold Calculator (Monte Carlo)")
 
-row = 0
-tk.Label(root, text="n_e [10^19 m^-3]").grid(row=row, column=0, sticky="e", padx=4, pady=2)
-entry_density = tk.Entry(root)
-entry_density.grid(row=row, column=1, padx=4, pady=2)
+# ── Mode selection ───────────────────────────────────────
+mode_frame = tk.LabelFrame(root, text="Input Mode", padx=8, pady=4)
+mode_frame.grid(row=0, column=0, columnspan=3, sticky="ew", padx=6, pady=4)
 
-row += 1
-tk.Label(root, text="|B_T| [T]").grid(row=row, column=0, sticky="e", padx=4, pady=2)
-entry_toroidal_field = tk.Entry(root)
-entry_toroidal_field.grid(row=row, column=1, padx=4, pady=2)
+mode_var = tk.StringVar(value="single")
 
-row += 1
-tk.Label(root, text="β_n").grid(row=row, column=0, sticky="e", padx=4, pady=2)
-entry_beta_n = tk.Entry(root)
-entry_beta_n.grid(row=row, column=1, padx=4, pady=2)
 
-row += 1
-tk.Label(root, text="l_i").grid(row=row, column=0, sticky="e", padx=4, pady=2)
-entry_l_i = tk.Entry(root)
-entry_l_i.grid(row=row, column=1, padx=4, pady=2)
+def toggle_mode():
+    is_single = mode_var.get() == "single"
+    state_single = "normal" if is_single else "disabled"
+    for w in (entry_density, entry_toroidal_field, entry_beta_n,
+              entry_l_i, entry_major_radius, entry_plasma_current):
+        w.config(state=state_single)
+    btn_calc_single.config(state=state_single)
+    btn_load_csv.config(state="disabled" if is_single else "normal")
 
-row += 1
-tk.Label(root, text="R0 [m]").grid(row=row, column=0, sticky="e", padx=4, pady=2)
-entry_major_radius = tk.Entry(root)
-entry_major_radius.grid(row=row, column=1, padx=4, pady=2)
 
-row += 1
-tk.Label(root, text="|Ip| [MA]").grid(row=row, column=0, sticky="e", padx=4, pady=2)
-entry_plasma_current = tk.Entry(root)
-entry_plasma_current.grid(row=row, column=1, padx=4, pady=2)
+tk.Radiobutton(
+    mode_frame, text="Single Point", variable=mode_var,
+    value="single", command=toggle_mode,
+).pack(side="left", padx=10)
+tk.Radiobutton(
+    mode_frame, text="Batch (CSV Upload)", variable=mode_var,
+    value="batch", command=toggle_mode,
+).pack(side="left", padx=10)
 
-row += 1
-tk.Label(root, text="Scaling").grid(row=row, column=0, sticky="e", padx=4, pady=2)
+# ── Input fields ─────────────────────────────────────────
+input_frame = tk.LabelFrame(root, text="Single-Point Inputs", padx=8, pady=4)
+input_frame.grid(row=1, column=0, columnspan=3, sticky="ew", padx=6, pady=4)
+
+r = 0
+tk.Label(input_frame, text="n_e [10¹⁹ m⁻³]").grid(row=r, column=0, sticky="e", padx=4, pady=2)
+entry_density = tk.Entry(input_frame)
+entry_density.grid(row=r, column=1, padx=4, pady=2)
+
+r += 1
+tk.Label(input_frame, text="|BT| [T]").grid(row=r, column=0, sticky="e", padx=4, pady=2)
+entry_toroidal_field = tk.Entry(input_frame)
+entry_toroidal_field.grid(row=r, column=1, padx=4, pady=2)
+
+r += 1
+tk.Label(input_frame, text="β_n").grid(row=r, column=0, sticky="e", padx=4, pady=2)
+entry_beta_n = tk.Entry(input_frame)
+entry_beta_n.grid(row=r, column=1, padx=4, pady=2)
+
+r += 1
+tk.Label(input_frame, text="l_i").grid(row=r, column=0, sticky="e", padx=4, pady=2)
+entry_l_i = tk.Entry(input_frame)
+entry_l_i.grid(row=r, column=1, padx=4, pady=2)
+
+r += 1
+tk.Label(input_frame, text="R₀ [m]").grid(row=r, column=0, sticky="e", padx=4, pady=2)
+entry_major_radius = tk.Entry(input_frame)
+entry_major_radius.grid(row=r, column=1, padx=4, pady=2)
+
+r += 1
+tk.Label(input_frame, text="|Ip| [MA]").grid(row=r, column=0, sticky="e", padx=4, pady=2)
+entry_plasma_current = tk.Entry(input_frame)
+entry_plasma_current.grid(row=r, column=1, padx=4, pady=2)
+
+# ── Settings ─────────────────────────────────────────────
+settings_frame = tk.LabelFrame(root, text="Settings", padx=8, pady=4)
+settings_frame.grid(row=2, column=0, columnspan=3, sticky="ew", padx=6, pady=4)
+
+tk.Label(settings_frame, text="Scaling").grid(row=0, column=0, sticky="e", padx=4, pady=2)
 scaling_var = tk.StringVar(value="2026 O,L OLS")
 scaling_dropdown = ttk.Combobox(
-    root,
-    textvariable=scaling_var,
-    values=[
-        "2026 O,L OLS",
-        "2026 O,L WLS",
-        "2020 O,L,H WLS",
-        "2020 O,L WLS",
-    ],
-    state="readonly",
-    width=20,
-)
-scaling_dropdown.grid(row=row, column=1, padx=4, pady=2)
+    settings_frame, textvariable=scaling_var,
+    values=["2026 O,L OLS", "2026 O,L WLS", "2020 O,L,H WLS", "2020 O,L WLS"],
+    state="readonly", width=20)
+scaling_dropdown.grid(row=0, column=1, padx=4, pady=2)
 scaling_dropdown.bind("<<ComboboxSelected>>", update_formula)
 
-row += 1
-tk.Label(root, text="MC Distribution").grid(row=row, column=0, sticky="e", padx=4, pady=2)
+tk.Label(settings_frame, text="MC Distribution").grid(row=1, column=0, sticky="e", padx=4, pady=2)
 dist_var = tk.StringVar(value="normal")
-dist_dropdown = ttk.Combobox(
-    root,
-    textvariable=dist_var,
+ttk.Combobox(
+    settings_frame, textvariable=dist_var,
     values=["normal", "flat", "normal truncated"],
-    state="readonly",
-    width=20,
-)
-dist_dropdown.grid(row=row, column=1, padx=4, pady=2)
+    state="readonly", width=20,
+).grid(row=1, column=1, padx=4, pady=2)
 
-row += 1
-tk.Label(root, text="MC Samples").grid(row=row, column=0, sticky="e", padx=4, pady=2)
+tk.Label(settings_frame, text="MC Samples").grid(row=2, column=0, sticky="e", padx=4, pady=2)
 nsample_var = tk.StringVar(value="1000000")
-entry_nsample = tk.Entry(root, textvariable=nsample_var)
-entry_nsample.grid(row=row, column=1, padx=4, pady=2)
+tk.Entry(settings_frame, textvariable=nsample_var, width=22).grid(row=2, column=1, padx=4, pady=2)
 
-row += 1
-tk.Button(root, text="Calculate (Monte Carlo)", command=calculate_threshold).grid(
-    row=row, column=0, columnspan=2, pady=6
-)
+# ── Action buttons ───────────────────────────────────────
+btn_frame = tk.Frame(root)
+btn_frame.grid(row=3, column=0, columnspan=3, pady=6)
 
-row += 1
+btn_calc_single = tk.Button(
+    btn_frame, text="Calculate (Single Point)",
+    command=calculate_threshold_single)
+btn_calc_single.pack(side="left", padx=10)
+
+btn_load_csv = tk.Button(
+    btn_frame, text="Load CSV & Calculate Batch",
+    command=load_csv_and_calculate, state="disabled")
+btn_load_csv.pack(side="left", padx=10)
+
+# ── Formula display ──────────────────────────────────────
 formula_frame = tk.Frame(root)
-formula_frame.grid(row=row, column=0, columnspan=2, sticky="nsew")
+formula_frame.grid(row=4, column=0, columnspan=3, sticky="nsew")
 
-row += 1
+# ── Results area ─────────────────────────────────────────
 result_frame = tk.Frame(root)
-result_frame.grid(row=row, column=0, columnspan=2, sticky="nsew")
+result_frame.grid(row=5, column=0, columnspan=3, sticky="nsew")
 
-root.grid_rowconfigure(row, weight=1)
+root.grid_rowconfigure(5, weight=1)
 root.grid_columnconfigure(1, weight=1)
 
+toggle_mode()
 update_formula()
 root.mainloop()
