@@ -31,28 +31,28 @@ batch_results = []  # store for CSV export
 def get_formula_latex(name: str) -> str:
     if name == "2026 O,L WLS":
         return (
-            r"\delta = 10^{-4.26\pm0.09}"
+            r"\delta_\text{2026 O,L WLS} = 10^{-4.26\pm0.09}"
             r"\left(\frac{\beta_n}{l_i}\right)^{0.13\pm0.06}"
             r"\,|I_p|^{-1.01\pm0.07}\,R_0^{1.57\pm0.15}"
             r"\,n_e^{0.56\pm0.08}\,|B_T|^{0.30\pm0.10}"
         )
     if name == "2026 O,L OLS":
         return (
-            r"\delta = 10^{-4.31\pm0.03}"
+            r"\delta_\text{2026 O,L OLS} = 10^{-4.31\pm0.03}"
             r"\left(\frac{\beta_n}{l_i}\right)^{0.25\pm0.02}"
             r"\,|I_p|^{-0.97\pm0.02}\,R_0^{1.88\pm0.04}"
             r"\,n_e^{0.77\pm0.02}\,|B_T|^{0.20\pm0.03}"
         )
     if name == "2020 O,L,H WLS":
         return (
-            r"\delta = 10^{-3.65\pm0.03}"
+            r"\delta_\text{2020 O,L,H WLS} = 10^{-3.65\pm0.03}"
             r"\,n_e^{0.58\pm0.06}\,B_T^{-1.13\pm0.07}"
             r"\,R_0^{0.10\pm0.07}"
             r"\left(\frac{\beta_n}{l_i}\right)^{-0.20\pm0.05}"
         )
     if name == "2020 O,L WLS":
         return (
-            r"\delta = 10^{-3.49\pm0.05}"
+            r"\delta_\text{2020 O,L WLS} = 10^{-3.49\pm0.05}"
             r"\,n_e^{0.65\pm0.06}\,B_T^{-1.17\pm0.07}"
             r"\,R_0^{0.17\pm0.07}"
             r"\left(\frac{\beta_n}{l_i}\right)^{0.11\pm0.07}"
@@ -467,7 +467,7 @@ def update_formula(event=None):
 
 root = tk.Tk()
 root.title("Error Field Penetration Threshold Calculator (Monte Carlo)")
-
+root.state("zoomed")
 # ── Mode selection ───────────────────────────────────────
 mode_frame = tk.LabelFrame(root, text="Input Mode", padx=8, pady=4)
 mode_frame.grid(row=0, column=0, columnspan=3, sticky="ew", padx=6, pady=4)
