@@ -217,8 +217,8 @@ def calculate_threshold_single():
     ax.set_title(
         rf"$\delta = {delta_nominal:.3e}$"
         rf"$\;(-{delta_nominal - psigL:.2e}\;/\;+{psigU - delta_nominal:.2e})$"
-        f"\n{s}  |  MC: {nsample:,}  |  dist: {dist}"
-        f"  |  $\\beta_n/l_i$ = {beta_n / l_i:.3f}",
+        f"\n{s}  |  MC: {nsample:,}  |  dist: {dist}",
+        #f"  |  $\\beta_n/l_i$ = {beta_n / l_i:.3f}",
         fontsize=10)
     ax.legend(fontsize=8)
     fig.tight_layout()
@@ -476,7 +476,6 @@ mode_frame.grid(row=0, column=0, columnspan=3, sticky="ew", padx=6, pady=4)
 
 mode_var = tk.StringVar(value="single")
 
-
 def toggle_mode():
     is_single = mode_var.get() == "single"
     state_single = "normal" if is_single else "disabled"
@@ -485,7 +484,9 @@ def toggle_mode():
         w.config(state=state_single)
     btn_calc_single.config(state=state_single)
     btn_load_csv.config(state="disabled" if is_single else "normal")
-
+    # Disable preset buttons in batch mode
+    for b in preset_buttons:
+        b.config(state=state_single)
 
 tk.Radiobutton(
     mode_frame, text="Single Point", variable=mode_var,
@@ -506,12 +507,12 @@ entry_density = tk.Entry(input_frame)
 entry_density.grid(row=r, column=1, padx=4, pady=2)
 
 r += 1
-tk.Label(input_frame, text="|BT| [T]").grid(row=r, column=0, sticky="e", padx=4, pady=2)
+tk.Label(input_frame, text="|B_T| [T]").grid(row=r, column=0, sticky="e", padx=4, pady=2)
 entry_toroidal_field = tk.Entry(input_frame)
 entry_toroidal_field.grid(row=r, column=1, padx=4, pady=2)
 
 r += 1
-tk.Label(input_frame, text="β_n").grid(row=r, column=0, sticky="e", padx=4, pady=2)
+tk.Label(input_frame, text="beta_n").grid(row=r, column=0, sticky="e", padx=4, pady=2)
 entry_beta_n = tk.Entry(input_frame)
 entry_beta_n.grid(row=r, column=1, padx=4, pady=2)
 
@@ -521,12 +522,12 @@ entry_l_i = tk.Entry(input_frame)
 entry_l_i.grid(row=r, column=1, padx=4, pady=2)
 
 r += 1
-tk.Label(input_frame, text="R₀ [m]").grid(row=r, column=0, sticky="e", padx=4, pady=2)
+tk.Label(input_frame, text="R_0 [m]").grid(row=r, column=0, sticky="e", padx=4, pady=2)
 entry_major_radius = tk.Entry(input_frame)
 entry_major_radius.grid(row=r, column=1, padx=4, pady=2)
 
 r += 1
-tk.Label(input_frame, text="|Ip| [MA]").grid(row=r, column=0, sticky="e", padx=4, pady=2)
+tk.Label(input_frame, text="|I_p| [MA]").grid(row=r, column=0, sticky="e", padx=4, pady=2)
 entry_plasma_current = tk.Entry(input_frame)
 entry_plasma_current.grid(row=r, column=1, padx=4, pady=2)
 
@@ -568,6 +569,60 @@ btn_load_csv = tk.Button(
     btn_frame, text="Load CSV & Calculate Batch",
     command=load_csv_and_calculate, state="disabled")
 btn_load_csv.pack(side="left", padx=10)
+def populate_defaults(defaults):
+    """Fill single-point entries with the given default values."""
+    mode_var.set("single")
+    toggle_mode()
+    for entry, val in defaults.items():
+        entry.delete(0, tk.END)
+        entry.insert(0, val)
+
+
+ITER_DEFAULTS = {
+    entry_density:        "9.8",    # n_e [10¹⁹ m⁻³]
+    entry_toroidal_field: "5.3",    # |B_T| [T]
+    entry_beta_n:         "1.8",    # β_n
+    entry_l_i:            "1.0",    # l_i
+    entry_major_radius:   "6.2",    # R₀ [m]
+    entry_plasma_current: "14.9",   # |I_p| [MA]
+}
+
+SPARC_L_DEFAULTS = {
+    entry_density:        "17.3",   # n_e [10¹⁹ m⁻³]
+    entry_toroidal_field: "12.16",  # |B_T| [T]
+    entry_beta_n:         "0.17",   # β_n
+    entry_l_i:            "0.74",   # l_i
+    entry_major_radius:   "1.85",   # R₀ [m]
+    entry_plasma_current: "8.7",    # |I_p| [MA]
+}
+
+SPARC_H_DEFAULTS = {
+    entry_density:        "28.8",   # n_e [10¹⁹ m⁻³]
+    entry_toroidal_field: "12.16",  # |B_T| [T]
+    entry_beta_n:         "0.98",   # β_n
+    entry_l_i:            "0.72",   # l_i
+    entry_major_radius:   "1.85",   # R₀ [m]
+    entry_plasma_current: "8.7",    # |I_p| [MA]
+}
+preset_buttons = []
+
+preset_buttons.append(tk.Button(
+    btn_frame, text="ITER Defaults",
+    command=lambda: populate_defaults(ITER_DEFAULTS),
+))
+preset_buttons[-1].pack(side="left", padx=10)
+
+preset_buttons.append(tk.Button(
+    btn_frame, text="SPARC L-mode Defaults",
+    command=lambda: populate_defaults(SPARC_L_DEFAULTS),
+))
+preset_buttons[-1].pack(side="left", padx=10)
+
+preset_buttons.append(tk.Button(
+    btn_frame, text="SPARC H-mode Defaults",
+    command=lambda: populate_defaults(SPARC_H_DEFAULTS),
+))
+preset_buttons[-1].pack(side="left", padx=10)
 
 # ── Formula display ──────────────────────────────────────
 formula_frame = tk.Frame(root)
