@@ -28,7 +28,7 @@ const DEFAULT_PS = {
   titleSize: 12, axisLabelSize: 14, tickSize: 12, legendSize: 10,
   fontFamily: "Times New Roman, serif",
   xLabel: "δ (Error-field penetration threshold)",
-  yLabel: "Probability density",
+  yLabel: "Normalized PDF",
   width: 0, height: 420,
   lineWidth: 1.2, nomLineWidth: 2.0, sigLineWidth: 1.2,
   fillOpacity: 0.20,
@@ -363,39 +363,43 @@ function getTraceColor(idx) {
 }
 
 function buildPlotlyTraces() {
-  const ps = plotSettings;
-  const traces = [];
-  for (let ti = 0; ti < overplotTraces.length; ti++) {
-    const t = overplotTraces[ti];
-    const color = getTraceColor(ti);
-    const ymax = Math.max(...t.pdf) * 1.05;
-    traces.push({
-      x: Array.from(t.centers), y: Array.from(t.pdf),
-      type:"scatter", mode:"lines", fill:"tozeroy",
-      fillcolor: colorToRGBA(color, ps.fillOpacity),
-      line:{color, width: ps.lineWidth},
-      name: `${t.label} PDF`, legendgroup: t.label,
-    });
-    traces.push({
-      x:[t.deltaNom, t.deltaNom], y:[0, ymax],
-      mode:"lines", line:{color, dash:"solid", width: ps.nomLineWidth},
-      name: `${t.label} δ=${fmtE(t.deltaNom)}`, legendgroup: t.label,
-    });
-    traces.push({
-      x:[t.psigL, t.psigL], y:[0, ymax],
-      mode:"lines", line:{color, dash:"dash", width: ps.sigLineWidth},
-      name: `${t.label} −1σ (${fmtE(t.psigL,2)})`,
-      legendgroup: t.label, showlegend: false,
-    });
-    traces.push({
-      x:[t.psigU, t.psigU], y:[0, ymax],
-      mode:"lines", line:{color, dash:"dash", width: ps.sigLineWidth},
-      name: `${t.label} +1σ (${fmtE(t.psigU,2)})`,
-      legendgroup: t.label, showlegend: false,
-    });
+    const ps = plotSettings;
+    const traces = [];
+    for (let ti = 0; ti < overplotTraces.length; ti++) {
+      const t = overplotTraces[ti];
+      const color = getTraceColor(ti);
+      const pdfMax = Math.max(...t.pdf);
+      const normPdf = Array.from(t.pdf).map(v => pdfMax > 0 ? v / pdfMax : 0);
+      const ymax = 1.05;
+  
+      traces.push({
+        x: Array.from(t.centers), y: normPdf,
+        type:"scatter", mode:"lines", fill:"tozeroy",
+        fillcolor: colorToRGBA(color, ps.fillOpacity),
+        line:{color, width: ps.lineWidth},
+        name: `${t.label} PDF`, legendgroup: t.label,
+      });
+      traces.push({
+        x:[t.deltaNom, t.deltaNom], y:[0, ymax],
+        mode:"lines", line:{color, dash:"solid", width: ps.nomLineWidth},
+        name: `${t.label} δ=${fmtE(t.deltaNom)}`, legendgroup: t.label,
+      });
+      traces.push({
+        x:[t.psigL, t.psigL], y:[0, ymax],
+        mode:"lines", line:{color, dash:"dash", width: ps.sigLineWidth},
+        name: `${t.label} −1σ (${fmtE(t.psigL,2)})`,
+        legendgroup: t.label, showlegend: false,
+      });
+      traces.push({
+        x:[t.psigU, t.psigU], y:[0, ymax],
+        mode:"lines", line:{color, dash:"dash", width: ps.sigLineWidth},
+        name: `${t.label} +1σ (${fmtE(t.psigU,2)})`,
+        legendgroup: t.label, showlegend: false,
+      });
+    }
+    return traces;
   }
-  return traces;
-}
+
 
 function renderOverplot() {
   if (!overplotTraces.length) { $("plot-box").innerHTML = ""; return; }
@@ -715,6 +719,93 @@ function doDeleteSaved() {
   }
   if (!list.options.length) $("load-dialog").close();
 }
+
+// ─────────────────── Save / Load inputs ──────────────────
+
+function getSavedInputs() {
+    try { return JSON.parse(localStorage.getItem("efp_inputs") || "{}"); }
+    catch(e) { return {}; }
+  }
+  function putSavedInputs(obj) {
+    localStorage.setItem("efp_inputs", JSON.stringify(obj));
+  }
+  
+  function saveInputs() {
+    const label = $("in_label").value.trim();
+    const ne = $("in_ne").value.trim();
+    const BT = $("in_BT").value.trim();
+    const bn = $("in_bn").value.trim();
+    const li = $("in_li").value.trim();
+    const R0 = $("in_R0").value.trim();
+    const Ip = $("in_Ip").value.trim();
+  
+    if ([ne,BT,bn,li,R0,Ip].some(v => v === "" || isNaN(parseFloat(v)))) {
+      alert("All input fields must contain valid numbers before saving.");
+      return;
+    }
+  
+    const name = prompt("Enter a name for this input set:");
+    if (!name || !name.trim()) return;
+    const n = name.trim();
+  
+    const saved = getSavedInputs();
+    if (saved[n] && !confirm(`Overwrite existing "${n}"?`)) return;
+  
+    saved[n] = { label, n_e:ne, B_T:BT, beta_n:bn, l_i:li, R_0:R0, I_p:Ip };
+    putSavedInputs(saved);
+    alert(`Input set "${n}" saved.`);
+  }
+  
+  function loadInputsDialog() {
+    const saved = getSavedInputs();
+    const names = Object.keys(saved).sort();
+    if (!names.length) { alert("No saved input sets found."); return; }
+    const list = $("saved-inputs-list");
+    list.innerHTML = "";
+    for (const n of names) {
+      const opt = document.createElement("option");
+      opt.value = n; opt.textContent = n;
+      list.appendChild(opt);
+    }
+    $("load-inputs-dialog").showModal();
+  }
+  
+  function doLoadSavedInputs() {
+    const list = $("saved-inputs-list");
+    const name = list.value;
+    if (!name) { alert("Select an input set first."); return; }
+    const saved = getSavedInputs();
+    const p = saved[name];
+    if (!p) return;
+  
+    // Switch to single mode
+    document.querySelector('input[name="mode"][value="single"]').checked = true;
+    toggleMode();
+  
+    $("in_label").value = p.label || "";
+    $("in_ne").value    = p.n_e   || "";
+    $("in_BT").value    = p.B_T   || "";
+    $("in_bn").value    = p.beta_n|| "";
+    $("in_li").value    = p.l_i   || "";
+    $("in_R0").value    = p.R_0   || "";
+    $("in_Ip").value    = p.I_p   || "";
+  
+    $("load-inputs-dialog").close();
+  }
+  
+  function doDeleteSavedInputs() {
+    const list = $("saved-inputs-list");
+    const name = list.value;
+    if (!name) { alert("Select an input set first."); return; }
+    if (!confirm(`Delete "${name}"?`)) return;
+    const saved = getSavedInputs();
+    delete saved[name];
+    putSavedInputs(saved);
+    for (const opt of list.options) {
+      if (opt.value === name) { opt.remove(); break; }
+    }
+    if (!list.options.length) $("load-inputs-dialog").close();
+  }
 
 // ─────────────────── Startup ─────────────────────────────
 

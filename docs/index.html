@@ -135,6 +135,10 @@
         <tr><td class="lbl">|I<sub>p</sub>| [MA]</td>
             <td><input type="number" id="in_Ip" step="any"></td></tr>
       </table>
+      <div class="exp-buttons">
+        <button onclick="saveInputs()">Save Inputs…</button>
+        <button onclick="loadInputsDialog()">Load / Delete Saved…</button>
+      </div>
     </fieldset>
 
     <fieldset class="panel exp-panel">
@@ -283,7 +287,16 @@
     <button onclick="document.getElementById('plot-settings-dialog').close()">Close</button>
   </div>
 </dialog>
-
+<!-- Load / Delete saved inputs -->
+<dialog id="load-inputs-dialog">
+    <h3>Saved Input Sets</h3>
+    <select id="saved-inputs-list" size="8" style="width:100%"></select>
+    <div class="dialog-buttons">
+      <button onclick="doLoadSavedInputs()">Load</button>
+      <button onclick="doDeleteSavedInputs()">Delete</button>
+      <button onclick="document.getElementById('load-inputs-dialog').close()">Cancel</button>
+    </div>
+  </dialog>
 <script src="app.js"></script>
 </body>
 </html>
