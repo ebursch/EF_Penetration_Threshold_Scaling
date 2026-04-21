@@ -9,8 +9,8 @@ Users can either enter single values manually or upload a CSV file with
 columns: n_e, B_T, beta_n, l_i, R_0, I_p. Results are displayed in a
 table and can be exported to CSV.
 
-If a scaling uses beta_n/l_i, the ratio is computed internally from the
-two separate inputs.
+2026 Scalings from E.M. Bursch et al 2026 Submitted to PPCF
+2020 Scalings from N.C. Logan et al 2020 Nucl. Fusion 60 086010
 """
 import tkinter as tk
 from tkinter import messagebox, ttk, filedialog
