@@ -45,17 +45,19 @@ def get_formula_latex(name: str) -> str:
         )
     if name == "2020 O,L,H WLS":
         return (
-            r"\delta_\text{2020 O,L,H WLS} = 10^{-3.65\pm0.03}"
-            r"\,n_e^{0.58\pm0.06}\,B_T^{-1.13\pm0.07}"
-            r"\,R_0^{0.10\pm0.07}"
-            r"\left(\frac{\beta_n}{l_i}\right)^{-0.20\pm0.05}"
+            r"\delta_\text{2020 O,L,H WLS} = 10^{-3.62\pm0.04}"
+            r"\,n_e^{0.53\pm0.06}\,B_T^{-0.95\pm0.07}"
+            r"\,R_0^{0.14\pm0.08}"
+            r"\left(\frac{\beta_n}{l_i}\right)^{-0.19\pm0.05}"
+            r"\,|I_p|^{0.00\pm0.00}"
         )
     if name == "2020 O,L WLS":
         return (
-            r"\delta_\text{2020 O,L WLS} = 10^{-3.49\pm0.05}"
-            r"\,n_e^{0.65\pm0.06}\,B_T^{-1.17\pm0.07}"
-            r"\,R_0^{0.17\pm0.07}"
-            r"\left(\frac{\beta_n}{l_i}\right)^{0.11\pm0.07}"
+            r"\delta_\text{2020 O,L WLS} = 10^{-3.46\pm0.05}"
+            r"\,n_e^{0.64\pm0.06}\,B_T^{-1.14\pm0.08}"
+            r"\,R_0^{0.20\pm0.07}"
+            r"\left(\frac{\beta_n}{l_i}\right)^{0.15\pm0.07}"
+            r"\,|I_p|^{0.00\pm0.00}"
         )
 
 
