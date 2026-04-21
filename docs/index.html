@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Error Field Penetration Threshold Calculator</title>
+  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet"
+        href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css" />
+  <script defer
+          src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+  <script src="https://cdn.plot.ly/plotly-2.35.0.min.js" charset="utf-8"></script>
+</head>
+<body>
+
+<h1>Error-Field Penetration Threshold Calculator (Monte Carlo)</h1>
+<p class="subtitle">
+  2026 scalings: E.M. Bursch <em>et al.</em> 2026 Submitted to PPCF &nbsp;|&nbsp;
+  2020 scalings: N.C. Logan <em>et al.</em> 2020 <em>Plasma Phys. Control. Fusion</em> <b>62</b> 084001
+</p>
+
+<!-- ── Mode selection ──────────────────────────────── -->
+<fieldset class="mode-box">
+  <legend>Input Mode</legend>
+  <label><input type="radio" name="mode" value="single" checked
+                onchange="toggleMode()"> Single Point</label>
+  <label><input type="radio" name="mode" value="batch"
+                onchange="toggleMode()"> Batch (CSV Upload)</label>
+</fieldset>
+
+<!-- ── Top row: inputs + exponent editor ───────────── -->
+<div class="top-row">
+
+  <!-- Single-point inputs -->
+  <fieldset id="input-box" class="panel">
+    <legend>Single-Point Inputs</legend>
+    <table class="input-table">
+      <tr><td class="lbl">n<sub>e</sub> [10<sup>19</sup> m<sup>−3</sup>]</td>
+          <td><input type="number" id="in_ne" step="any"></td></tr>
+      <tr><td class="lbl">|B<sub>T</sub>| [T]</td>
+          <td><input type="number" id="in_BT" step="any"></td></tr>
+      <tr><td class="lbl">β<sub>n</sub></td>
+          <td><input type="number" id="in_bn" step="any"></td></tr>
+      <tr><td class="lbl">l<sub>i</sub></td>
+          <td><input type="number" id="in_li" step="any"></td></tr>
+      <tr><td class="lbl">R<sub>0</sub> [m]</td>
+          <td><input type="number" id="in_R0" step="any"></td></tr>
+      <tr><td class="lbl">|I<sub>p</sub>| [MA]</td>
+          <td><input type="number" id="in_Ip" step="any"></td></tr>
+    </table>
+  </fieldset>
+
+  <!-- Exponent editor -->
+  <fieldset class="panel exp-panel">
+    <legend>Scaling Exponents (edit → Custom)</legend>
+    <table class="input-table">
+      <tr><th>Parameter</th><th>Value</th><th>± Uncert.</th></tr>
+      <tr><td class="lbl">C (log₁₀)</td>
+          <td><input type="number" id="ex_C_v"   step="any" oninput="onExpChanged()"></td>
+          <td><input type="number" id="ex_C_u"   step="any" oninput="onExpChanged()"></td></tr>
+      <tr><td class="lbl">β<sub>n</sub>/l<sub>i</sub> exp</td>
+          <td><input type="number" id="ex_bnli_v" step="any" oninput="onExpChanged()"></td>
+          <td><input type="number" id="ex_bnli_u" step="any" oninput="onExpChanged()"></td></tr>
+      <tr><td class="lbl">|I<sub>p</sub>| exp</td>
+          <td><input type="number" id="ex_ip_v"  step="any" oninput="onExpChanged()"></td>
+          <td><input type="number" id="ex_ip_u"  step="any" oninput="onExpChanged()"></td></tr>
+      <tr><td class="lbl">R<sub>0</sub> exp</td>
+          <td><input type="number" id="ex_R_v"   step="any" oninput="onExpChanged()"></td>
+          <td><input type="number" id="ex_R_u"   step="any" oninput="onExpChanged()"></td></tr>
+      <tr><td class="lbl">n<sub>e</sub> exp</td>
+          <td><input type="number" id="ex_ne_v"  step="any" oninput="onExpChanged()"></td>
+          <td><input type="number" id="ex_ne_u"  step="any" oninput="onExpChanged()"></td></tr>
+      <tr><td class="lbl">|B<sub>T</sub>| exp</td>
+          <td><input type="number" id="ex_BT_v"  step="any" oninput="onExpChanged()"></td>
+          <td><input type="number" id="ex_BT_u"  step="any" oninput="onExpChanged()"></td></tr>
+    </table>
+    <div class="exp-buttons">
+      <button onclick="saveScaling()">Save Scaling…</button>
+      <button onclick="loadScalingDialog()">Load / Delete Saved…</button>
+    </div>
+  </fieldset>
+</div>
+
+<!-- ── Settings ────────────────────────────────────── -->
+<fieldset class="panel">
+  <legend>Settings</legend>
+  <div class="settings-row">
+    <label>Scaling
+      <select id="sel_scaling" onchange="onScalingSelected()">
+        <option>2026 O,L OLS</option>
+        <option>2026 O,L WLS</option>
+        <option>2020 O,L,H WLS</option>
+        <option>2020 O,L WLS</option>
+        <option>Custom</option>
+      </select>
+    </label>
+    <label>MC Distribution
+      <select id="sel_dist">
+        <option value="normal">normal</option>
+        <option value="flat">flat</option>
+        <option value="normal truncated">normal truncated</option>
+      </select>
+    </label>
+    <label>MC Samples
+      <input type="number" id="in_nsample" value="1000000" min="1000" step="1000">
+    </label>
+  </div>
+</fieldset>
+
+<!-- ── Action buttons ──────────────────────────────── -->
+<div class="btn-row">
+  <button id="btn_calc"    onclick="calcSingle()">Calculate (Single Point)</button>
+  <button id="btn_csv"     onclick="document.getElementById('csv_file').click()" disabled>
+    Load CSV &amp; Calculate Batch</button>
+  <input type="file" id="csv_file" accept=".csv" style="display:none"
+         onchange="loadCSV(this)">
+  <button class="preset-btn" id="pb1" onclick="fillITER()">ITER Defaults</button>
+  <button class="preset-btn" id="pb2" onclick="fillSPARC_L()">SPARC L-mode</button>
+  <button class="preset-btn" id="pb3" onclick="fillSPARC_H()">SPARC H-mode</button>
+</div>
+
+<!-- ── Formula ─────────────────────────────────────── -->
+<div id="formula-box"></div>
+
+<!-- ── Results ─────────────────────────────────────── -->
+<div id="plot-box"></div>
+<div id="table-box"></div>
+
+<!-- ── Load / Delete dialog (hidden) ───────────────── -->
+<dialog id="load-dialog">
+  <h3>Saved Scalings</h3>
+  <select id="saved-list" size="8" style="width:100%"></select>
+  <div class="dialog-buttons">
+    <button onclick="doLoadSaved()">Load</button>
+    <button onclick="doDeleteSaved()">Delete</button>
+    <button onclick="document.getElementById('load-dialog').close()">Cancel</button>
+  </div>
+</dialog>
+
+<script src="app.js"></script>
+</body>
+</html>
