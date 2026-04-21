@@ -13,10 +13,11 @@ table and can be exported to CSV.
 2020 Scalings from N.C. Logan et al 2020 Plasma Phys. Control. Fusion 62 084001
 """
 import tkinter as tk
-from tkinter import messagebox, ttk, filedialog
+from tkinter import messagebox, ttk, filedialog, simpledialog
 import math
 import csv
 import os
+import json
 import numpy as np
 
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
@@ -27,6 +28,11 @@ formula_canvas_widget = None
 result_canvas_widget = None
 batch_results = []
 _updating_exponents = False
+
+# ── Saved-scalings file (next to this script) ────────────
+SAVED_SCALINGS_FILE = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "saved_scalings.json"
+)
 
 # ── Exponent editor constants ────────────────────────────
 EXP_KEYS = ["C", "bnli_exp", "ip_exp", "R_exp", "ne_exp", "BT_exp"]
@@ -39,18 +45,28 @@ EXP_LABELS = {
     "BT_exp":   "|B_T| exp",
 }
 
+# Built-in scaling names that may never be overwritten or deleted
+BUILTIN_SCALING_NAMES = {
+    "2026 O,L WLS", "2026 O,L OLS",
+    "2020 O,L,H WLS", "2020 O,L WLS", "Custom",
+}
+
 
 def get_formula_latex(name: str) -> str:
-    if name == "Custom":
-        p = SCALINGS.get("Custom", SCALINGS["2026 O,L OLS"])
+    # Any scaling not hard-coded below gets dynamic LaTeX from SCALINGS dict
+    if name in SCALINGS and name not in {
+        "2026 O,L WLS", "2026 O,L OLS", "2020 O,L,H WLS", "2020 O,L WLS"
+    }:
+        p = SCALINGS[name]
         C_v, C_u = p["C"]
         bnli_v, bnli_u = p["bnli_exp"]
         ip_v, ip_u = p["ip_exp"]
         R_v, R_u = p["R_exp"]
         ne_v, ne_u = p["ne_exp"]
         BT_v, BT_u = p["BT_exp"]
+        safe = name.replace("_", r"\_")
         return (
-            r"\delta_\text{Custom} = 10^{"
+            r"\delta_\text{" + safe + r"} = 10^{"
             + f"{C_v:g}" + r"\pm" + f"{C_u:g}" + r"}"
             r"\left(\frac{\beta_n}{l_i}\right)^{"
             + f"{bnli_v:g}" + r"\pm" + f"{bnli_u:g}" + r"}"
@@ -139,6 +155,193 @@ PARAM_KEY_MAP = {
 
 # Required CSV columns (case-insensitive matching performed at load time)
 REQUIRED_COLUMNS = {"n_e", "B_T", "beta_n", "l_i", "R_0", "I_p"}
+
+
+# ─────────────────── Saved-scaling I/O ───────────────────
+
+def _read_saved_scalings_file():
+    """Return the dict stored in the JSON file, or {} if missing/corrupt."""
+    if not os.path.isfile(SAVED_SCALINGS_FILE):
+        return {}
+    try:
+        with open(SAVED_SCALINGS_FILE, "r") as f:
+            data = json.load(f)
+        if not isinstance(data, dict):
+            return {}
+        return data
+    except Exception:
+        return {}
+
+
+def _write_saved_scalings_file(data: dict):
+    with open(SAVED_SCALINGS_FILE, "w") as f:
+        json.dump(data, f, indent=2)
+
+
+def _scaling_to_serialisable(params: dict) -> dict:
+    """Convert {key: (val, unc), …} → {key: [val, unc], …} for JSON."""
+    return {k: list(v) for k, v in params.items()}
+
+
+def _scaling_from_serialisable(raw: dict) -> dict:
+    """Convert {key: [val, unc], …} → {key: (val, unc), …}."""
+    return {k: tuple(v) for k, v in raw.items()}
+
+
+def load_saved_scalings_into_app():
+    """Called once at startup: pull every saved scaling into SCALINGS."""
+    saved = _read_saved_scalings_file()
+    for name, raw in saved.items():
+        if name in BUILTIN_SCALING_NAMES:
+            continue
+        try:
+            params = _scaling_from_serialisable(raw)
+            # Validate it has all required keys
+            if all(k in params for k in EXP_KEYS):
+                SCALINGS[name] = params
+        except Exception:
+            pass  # silently skip corrupt entries
+
+
+def refresh_scaling_dropdown():
+    """Rebuild the dropdown values list to include any user-saved scalings."""
+    builtin = ["2026 O,L OLS", "2026 O,L WLS", "2020 O,L,H WLS", "2020 O,L WLS"]
+    user = sorted(k for k in SCALINGS if k not in BUILTIN_SCALING_NAMES)
+    scaling_dropdown["values"] = builtin + user + ["Custom"]
+
+
+def save_custom_scaling():
+    """Prompt for a name, then persist the current exponent values."""
+    # Read current exponent entries
+    try:
+        params = {}
+        for key in EXP_KEYS:
+            v = float(exp_val_vars[key].get())
+            u = float(exp_unc_vars[key].get())
+            params[key] = (v, u)
+    except ValueError:
+        messagebox.showerror("Save Error",
+                             "All exponent Value / Uncertainty fields must "
+                             "contain valid numbers before saving.")
+        return
+
+    name = simpledialog.askstring(
+        "Save Custom Scaling",
+        "Enter a name for this scaling:",
+        parent=root,
+    )
+    if not name:
+        return
+    name = name.strip()
+    if not name:
+        return
+
+    if name in BUILTIN_SCALING_NAMES:
+        messagebox.showerror("Save Error",
+                             f'"{name}" is a reserved name. '
+                             "Please choose a different name.")
+        return
+
+    # Confirm overwrite if the name already exists on disk
+    saved = _read_saved_scalings_file()
+    if name in saved:
+        ok = messagebox.askyesno(
+            "Overwrite?",
+            f'A saved scaling named "{name}" already exists.\n'
+            "Do you want to overwrite it?")
+        if not ok:
+            return
+
+    # Persist
+    saved[name] = _scaling_to_serialisable(params)
+    _write_saved_scalings_file(saved)
+
+    # Register in runtime dict & dropdown
+    SCALINGS[name] = params
+    refresh_scaling_dropdown()
+    scaling_var.set(name)
+    populate_exponent_entries(name)
+    update_formula()
+    messagebox.showinfo("Saved", f'Scaling "{name}" saved successfully.')
+
+
+def load_saved_scaling():
+    """Show a list of saved scalings and load the chosen one."""
+    saved = _read_saved_scalings_file()
+    if not saved:
+        messagebox.showinfo("Load", "No saved custom scalings found.")
+        return
+
+    # Pop up a selection dialog
+    win = tk.Toplevel(root)
+    win.title("Load Saved Scaling")
+    win.geometry("350x300")
+    win.transient(root)
+    win.grab_set()
+
+    tk.Label(win, text="Select a scaling to load:",
+             font=("TkDefaultFont", 10, "bold")).pack(pady=(10, 4))
+
+    listbox = tk.Listbox(win, selectmode="browse")
+    names = sorted(saved.keys())
+    for n in names:
+        listbox.insert("end", n)
+    listbox.pack(fill="both", expand=True, padx=10, pady=4)
+
+    btn_row = tk.Frame(win)
+    btn_row.pack(fill="x", pady=6)
+
+    def do_load():
+        sel = listbox.curselection()
+        if not sel:
+            messagebox.showwarning("Load", "No scaling selected.", parent=win)
+            return
+        chosen = names[sel[0]]
+        try:
+            params = _scaling_from_serialisable(saved[chosen])
+            if not all(k in params for k in EXP_KEYS):
+                raise ValueError("Missing exponent keys.")
+        except Exception as e:
+            messagebox.showerror("Load Error", str(e), parent=win)
+            return
+        SCALINGS[chosen] = params
+        refresh_scaling_dropdown()
+        scaling_var.set(chosen)
+        populate_exponent_entries(chosen)
+        update_formula()
+        win.destroy()
+
+    def do_delete():
+        sel = listbox.curselection()
+        if not sel:
+            messagebox.showwarning("Delete", "No scaling selected.", parent=win)
+            return
+        chosen = names[sel[0]]
+        ok = messagebox.askyesno(
+            "Delete?",
+            f'Permanently delete saved scaling "{chosen}"?',
+            parent=win)
+        if not ok:
+            return
+        del saved[chosen]
+        _write_saved_scalings_file(saved)
+        if chosen in SCALINGS and chosen not in BUILTIN_SCALING_NAMES:
+            del SCALINGS[chosen]
+        refresh_scaling_dropdown()
+        # If that was the active scaling, fall back to default
+        if scaling_var.get() == chosen:
+            scaling_var.set("2026 O,L OLS")
+            populate_exponent_entries("2026 O,L OLS")
+            update_formula()
+        listbox.delete(sel[0])
+        names.pop(sel[0])
+
+    tk.Button(btn_row, text="Load", width=10, command=do_load).pack(
+        side="left", padx=10)
+    tk.Button(btn_row, text="Delete", width=10, command=do_delete).pack(
+        side="left", padx=10)
+    tk.Button(btn_row, text="Cancel", width=10, command=win.destroy).pack(
+        side="right", padx=10)
 
 
 # ─────────────────── Monte Carlo core ────────────────────
@@ -421,7 +624,7 @@ def load_csv_and_calculate():
     tree_scroll_x = ttk.Scrollbar(container, orient="horizontal")
     tree = ttk.Treeview(
         container, columns=columns, show="headings",
-                yscrollcommand=tree_scroll_y.set,
+        yscrollcommand=tree_scroll_y.set,
         xscrollcommand=tree_scroll_x.set,
         height=min(len(batch_results), 20),
     )
@@ -525,12 +728,10 @@ def update_formula(event=None):
 
     mpl.rcParams['mathtext.fontset'] = 'dejavuserif'
     latex = get_formula_latex(scaling_var.get())
-
-    fig = Figure(figsize=(7, 1.2), dpi=120)
+    fig = Figure(figsize=(7, .7), dpi=120)
     ax = fig.add_subplot(111)
     ax.axis('off')
-    ax.text(0.5, 0.5, f"${latex}$", ha='center', va='center', fontsize=14)
-
+    ax.text(0.5, 0.5, f"${latex}$", ha='center', va='center', fontsize=10)
     canvas = FigureCanvasTkAgg(fig, master=formula_frame)
     canvas.draw()
     formula_canvas_widget = canvas.get_tk_widget()
@@ -639,6 +840,15 @@ for i, key in enumerate(EXP_KEYS):
     v.trace_add("write", on_exponent_changed)
     u.trace_add("write", on_exponent_changed)
 
+# ── Save / Load buttons beneath exponent entries ─────────
+exp_btn_row = tk.Frame(exp_frame)
+exp_btn_row.grid(row=len(EXP_KEYS) + 1, column=0, columnspan=3, pady=(6, 2))
+
+tk.Button(exp_btn_row, text="Save Scaling…",
+          command=save_custom_scaling).pack(side="left", padx=6)
+tk.Button(exp_btn_row, text="Load / Delete Saved…",
+          command=load_saved_scaling).pack(side="left", padx=6)
+
 # ── Settings ─────────────────────────────────────────────
 settings_frame = tk.LabelFrame(root, text="Settings", padx=8, pady=4)
 settings_frame.grid(row=2, column=0, columnspan=3, sticky="ew", padx=6, pady=4)
@@ -743,10 +953,11 @@ result_frame.grid(row=5, column=0, columnspan=3, sticky="nsew")
 root.grid_rowconfigure(5, weight=1)
 root.grid_columnconfigure(1, weight=1)
 
-# ── Initialize exponent fields from default scaling ──────
+# ── Load any previously saved scalings & initialize ──────
+load_saved_scalings_into_app()
+refresh_scaling_dropdown()
 populate_exponent_entries(scaling_var.get())
 
 toggle_mode()
 update_formula()
 root.mainloop()
-
