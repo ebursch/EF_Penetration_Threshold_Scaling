@@ -1,65 +1,134 @@
 *, *::before, *::after { box-sizing: border-box; }
-body {
-    font-family: "Times New Roman", "DejaVu Serif", Georgia, "Noto Serif", serif;
-    margin: 0 auto; max-width: 1200px; padding: 10px 16px;
-    background: #f7f8fa; color: #1a1a1a;
-  }
-input, button, select, textarea {
-font-family: inherit;
+
+:root {
+  --bg: #f7f8fa; --fg: #1a1a1a; --panel-bg: #fff; --border: #bbb;
+  --heading: #1a1a1a; --link: #1a6db5; --btn-bg: #e8f0fe; --btn-border: #99b;
+  --input-bg: #fff; --input-fg: #1a1a1a; --table-head: #e8ecf0;
+  --formula-bg: #fff; --csv-bg: #f0f4f8; --dialog-bg: #fff;
+  --shadow: rgba(0,0,0,0.08);
 }
-h1 { font-size: 1.25rem; margin: 6px 0 2px; }
+body.dark {
+  --bg: #1a1d23; --fg: #d4d4d4; --panel-bg: #23272e; --border: #444;
+  --heading: #e0e0e0; --link: #6db5e8; --btn-bg: #2a3040; --btn-border: #556;
+  --input-bg: #2a2e36; --input-fg: #d4d4d4; --table-head: #2a3040;
+  --formula-bg: #23272e; --csv-bg: #23272e; --dialog-bg: #23272e;
+  --shadow: rgba(0,0,0,0.3);
+}
+
+body {
+  font-family: "Times New Roman", "DejaVu Serif", Georgia, "Noto Serif", serif;
+  margin: 0 auto; max-width: 1200px; padding: 10px 16px;
+  background: var(--bg); color: var(--fg);
+  transition: background 0.25s, color 0.25s;
+}
+input, button, select, textarea { font-family: inherit; }
+
+h1 { font-size: 1.2rem; margin: 0; color: var(--heading); }
+h2 { font-size: 1.3rem; margin: 16px 0 6px; color: var(--heading); }
+h3 { font-size: 1.05rem; margin: 14px 0 4px; color: var(--heading); }
+h4 { font-size: 0.95rem; margin: 12px 0 4px; color: var(--heading); }
+p, li { font-size: 0.88rem; line-height: 1.5; }
+code { background: var(--csv-bg); padding: 1px 4px; border-radius: 3px; font-size: 0.85em; }
+a { color: var(--link); }
+
+.top-bar {
+  display: flex; justify-content: space-between; align-items: center;
+  flex-wrap: wrap; gap: 8px; margin-bottom: 8px;
+  padding-bottom: 6px; border-bottom: 1px solid var(--border);
+}
+.top-bar-right { display: flex; gap: 8px; align-items: center; }
+.top-bar-right button { font-size: 0.82rem; padding: 4px 12px; cursor: pointer;
+  background: var(--btn-bg); border: 1px solid var(--btn-border); border-radius: 4px;
+  color: var(--fg); }
+.dark-toggle { font-size: 0.82rem; display: flex; align-items: center; gap: 4px; cursor: pointer; }
+
 .subtitle { font-size: 0.78rem; color: #555; margin: 0 0 10px; }
 
-fieldset { border: 1px solid #bbb; border-radius: 6px; padding: 8px 12px; }
-legend   { font-weight: 600; font-size: 0.85rem; padding: 0 6px; }
+fieldset { border: 1px solid var(--border); border-radius: 6px; padding: 8px 12px;
+  background: var(--panel-bg); }
+legend { font-weight: 600; font-size: 0.85rem; padding: 0 6px; }
 
 .mode-box { margin-bottom: 8px; }
-.mode-box label { margin-right: 18px; }
+.mode-box label { margin-right: 18px; font-size: 0.88rem; }
 
 .top-row { display: flex; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
 .panel   { flex: 1 1 320px; min-width: 300px; }
 .exp-panel { flex: 1.3 1 380px; }
 
 .input-table { width: 100%; border-collapse: collapse; }
-.input-table td, .input-table th {
-  padding: 2px 4px; font-size: 0.82rem;
-}
+.input-table td, .input-table th { padding: 2px 4px; font-size: 0.82rem; }
 .input-table th { text-align: center; font-size: 0.78rem; }
 .input-table .lbl { text-align: right; white-space: nowrap; width: 45%; }
-.input-table input[type="number"] { width: 100%; padding: 3px 5px; font-size: 0.82rem; }
+.input-table input[type="number"],
+.input-table input[type="text"] {
+  width: 100%; padding: 3px 5px; font-size: 0.82rem;
+  background: var(--input-bg); color: var(--input-fg);
+  border: 1px solid var(--border); border-radius: 3px;
+}
+select {
+  background: var(--input-bg); color: var(--input-fg);
+  border: 1px solid var(--border); border-radius: 3px;
+}
 
 .settings-row { display: flex; gap: 16px; flex-wrap: wrap; align-items: end; }
 .settings-row label { display: flex; flex-direction: column; font-size: 0.82rem; gap: 2px; }
 .settings-row select, .settings-row input { font-size: 0.82rem; padding: 3px 5px; }
 
 .btn-row { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0; }
-.btn-row button { font-size: 0.82rem; padding: 6px 14px; cursor: pointer; }
-.preset-btn { background: #e8f0fe; border: 1px solid #99b; border-radius: 4px; }
+.btn-row button { font-size: 0.82rem; padding: 6px 14px; cursor: pointer;
+  background: var(--btn-bg); color: var(--fg);
+  border: 1px solid var(--btn-border); border-radius: 4px; }
+.preset-btn { background: var(--btn-bg); border: 1px solid var(--btn-border); border-radius: 4px; }
 
 .exp-buttons { margin-top: 6px; display: flex; gap: 8px; }
-.exp-buttons button { font-size: 0.78rem; padding: 4px 10px; cursor: pointer; }
+.exp-buttons button { font-size: 0.78rem; padding: 4px 10px; cursor: pointer;
+  background: var(--btn-bg); color: var(--fg); border: 1px solid var(--btn-border); border-radius: 4px; }
 
 #formula-box {
-  background: #fff; border: 1px solid #ddd; border-radius: 6px;
+  background: var(--formula-bg); border: 1px solid var(--border); border-radius: 6px;
   padding: 6px 12px; margin: 6px 0; min-height: 32px;
   overflow-x: auto; text-align: center;
 }
-
 #plot-box { margin: 8px 0; }
 
 #table-box { margin: 8px 0; overflow-x: auto; }
-#table-box table {
-  border-collapse: collapse; width: 100%; font-size: 0.78rem;
-}
-#table-box th, #table-box td {
-  border: 1px solid #ccc; padding: 3px 6px; text-align: center;
-}
-#table-box th { background: #e8ecf0; position: sticky; top: 0; }
+#table-box table { border-collapse: collapse; width: 100%; font-size: 0.78rem; }
+#table-box th, #table-box td { border: 1px solid var(--border); padding: 3px 6px; text-align: center; }
+#table-box th { background: var(--table-head); position: sticky; top: 0; }
 #table-box .summary { font-size: 0.8rem; font-style: italic; margin: 4px 0; }
 
-dialog { border: 1px solid #999; border-radius: 8px; padding: 16px; min-width: 300px; }
+/* ── Landing page ─────────── */
+.csv-example { overflow-x: auto; margin: 8px 0; }
+.csv-example table { border-collapse: collapse; font-size: 0.82rem; background: var(--csv-bg); }
+.csv-example th, .csv-example td { border: 1px solid var(--border); padding: 4px 10px; }
+.csv-example th { background: var(--table-head); }
+
+.def-table { border-collapse: collapse; font-size: 0.82rem; margin: 8px 0; }
+.def-table th, .def-table td { border: 1px solid var(--border); padding: 4px 10px; text-align: left; }
+.def-table th { background: var(--table-head); }
+
+.big-btn { font-size: 1rem; padding: 10px 28px; cursor: pointer;
+  background: #3070c0; color: #fff; border: none; border-radius: 6px; }
+body.dark .big-btn { background: #4080d0; }
+
+/* ── Dialogs ──────────────── */
+dialog { border: 1px solid var(--border); border-radius: 8px; padding: 16px; min-width: 320px;
+  background: var(--dialog-bg); color: var(--fg); }
+dialog::backdrop { background: rgba(0,0,0,0.35); }
 dialog h3 { margin: 0 0 8px; }
-.dialog-buttons { margin-top: 10px; display: flex; gap: 8px; }
-.dialog-buttons button { padding: 5px 14px; cursor: pointer; }
+.dialog-buttons { margin-top: 10px; display: flex; gap: 8px; flex-wrap: wrap; }
+.dialog-buttons button { padding: 5px 14px; cursor: pointer;
+  background: var(--btn-bg); color: var(--fg); border: 1px solid var(--btn-border); border-radius: 4px; }
+
+/* Plot settings dialog */
+.ps-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 14px; }
+.ps-grid label { display: flex; flex-direction: column; font-size: 0.82rem; gap: 2px; }
+.ps-grid input, .ps-grid select { font-size: 0.82rem; padding: 3px 5px;
+  background: var(--input-bg); color: var(--input-fg); border: 1px solid var(--border); border-radius: 3px; }
+.ps-note { font-size: 0.78rem; color: #888; margin: 4px 0; }
+#ps_colorOverrides { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+#ps_colorOverrides label { font-size: 0.78rem; display: flex; flex-direction: column; gap: 2px; }
+#ps_colorOverrides input { width: 80px; font-size: 0.78rem; padding: 2px 4px;
+  background: var(--input-bg); color: var(--input-fg); border: 1px solid var(--border); }
 
 button:disabled { opacity: 0.45; cursor: default; }

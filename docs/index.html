@@ -14,102 +14,187 @@
 </head>
 <body>
 
-<h1>Error-Field Penetration Threshold Calculator (Monte Carlo)</h1>
-<p class="subtitle">
-  E.M. Bursch <em>et al.</em> 2026 Submitted to PPCF &nbsp;|&nbsp;
-  N.C. Logan <em>et al.</em> 2020 <em>Plasma Phys. Control. Fusion</em> <b>62</b> 084001
-</p>
-
-<!-- ── Mode selection ──────────────────────────────── -->
-<fieldset class="mode-box">
-  <legend>Input Mode</legend>
-  <label><input type="radio" name="mode" value="single" checked
-                onchange="toggleMode()"> Single Point</label>
-  <label><input type="radio" name="mode" value="batch"
-                onchange="toggleMode()"> Batch (CSV Upload)</label>
-</fieldset>
-
-<!-- ── Top row: inputs + exponent editor ───────────── -->
-<div class="top-row">
-
-  <!-- Single-point inputs -->
-  <fieldset id="input-box" class="panel">
-    <legend>Single-Point Inputs</legend>
-    <table class="input-table">
-      <tr><td class="lbl">n<sub>e</sub> [10<sup>19</sup> m<sup>−3</sup>]</td>
-          <td><input type="number" id="in_ne" step="any"></td></tr>
-      <tr><td class="lbl">|B<sub>T</sub>| [T]</td>
-          <td><input type="number" id="in_BT" step="any"></td></tr>
-      <tr><td class="lbl">β<sub>n</sub></td>
-          <td><input type="number" id="in_bn" step="any"></td></tr>
-      <tr><td class="lbl">l<sub>i</sub></td>
-          <td><input type="number" id="in_li" step="any"></td></tr>
-      <tr><td class="lbl">R<sub>0</sub> [m]</td>
-          <td><input type="number" id="in_R0" step="any"></td></tr>
-      <tr><td class="lbl">|I<sub>p</sub>| [MA]</td>
-          <td><input type="number" id="in_Ip" step="any"></td></tr>
-    </table>
-  </fieldset>
-
-  <!-- Exponent editor -->
-  <fieldset class="panel exp-panel">
-    <legend>Scaling Exponents (edit → Custom)</legend>
-    <table class="input-table">
-      <tr><th>Parameter</th><th>Value</th><th>± Uncert.</th></tr>
-      <tr><td class="lbl">C (log₁₀)</td>
-          <td><input type="number" id="ex_C_v"   step="any" oninput="onExpChanged()"></td>
-          <td><input type="number" id="ex_C_u"   step="any" oninput="onExpChanged()"></td></tr>
-      <tr><td class="lbl">β<sub>n</sub>/l<sub>i</sub> exp</td>
-          <td><input type="number" id="ex_bnli_v" step="any" oninput="onExpChanged()"></td>
-          <td><input type="number" id="ex_bnli_u" step="any" oninput="onExpChanged()"></td></tr>
-      <tr><td class="lbl">|I<sub>p</sub>| exp</td>
-          <td><input type="number" id="ex_ip_v"  step="any" oninput="onExpChanged()"></td>
-          <td><input type="number" id="ex_ip_u"  step="any" oninput="onExpChanged()"></td></tr>
-      <tr><td class="lbl">R<sub>0</sub> exp</td>
-          <td><input type="number" id="ex_R_v"   step="any" oninput="onExpChanged()"></td>
-          <td><input type="number" id="ex_R_u"   step="any" oninput="onExpChanged()"></td></tr>
-      <tr><td class="lbl">n<sub>e</sub> exp</td>
-          <td><input type="number" id="ex_ne_v"  step="any" oninput="onExpChanged()"></td>
-          <td><input type="number" id="ex_ne_u"  step="any" oninput="onExpChanged()"></td></tr>
-      <tr><td class="lbl">|B<sub>T</sub>| exp</td>
-          <td><input type="number" id="ex_BT_v"  step="any" oninput="onExpChanged()"></td>
-          <td><input type="number" id="ex_BT_u"  step="any" oninput="onExpChanged()"></td></tr>
-    </table>
-    <div class="exp-buttons">
-      <button onclick="saveScaling()">Save Scaling…</button>
-      <button onclick="loadScalingDialog()">Load / Delete Saved…</button>
-    </div>
-  </fieldset>
-</div>
-
-<!-- ── Settings ────────────────────────────────────── -->
-<fieldset class="panel">
-  <legend>Settings</legend>
-  <div class="settings-row">
-    <label>Scaling
-      <select id="sel_scaling" onchange="onScalingSelected()">
-        <option>2026 O,L OLS</option>
-        <option>2026 O,L WLS</option>
-        <option>2020 O,L,H WLS</option>
-        <option>2020 O,L WLS</option>
-        <option>Custom</option>
-      </select>
-    </label>
-    <label>MC Distribution
-      <select id="sel_dist">
-        <option value="normal">normal</option>
-        <option value="flat">flat</option>
-        <option value="normal truncated">normal truncated</option>
-      </select>
-    </label>
-    <label>MC Samples
-      <input type="number" id="in_nsample" value="1000000" min="1000" step="1000">
+<!-- ── Top bar ─────────────────────────────────────── -->
+<div class="top-bar">
+  <h1>Error-Field Penetration Threshold Calculator</h1>
+  <div class="top-bar-right">
+    <button onclick="showPage('landing')">How-To / Help</button>
+    <button onclick="showPage('app')">Calculator</button>
+    <label class="dark-toggle">
+      <input type="checkbox" id="dark-toggle" onchange="toggleDark()">
+      Dark Mode
     </label>
   </div>
-</fieldset>
+</div>
 
-<!-- ── Action buttons ──────────────────────────────── -->
-<div class="btn-row">
+<!-- ════════════════ LANDING PAGE ══════════════════════ -->
+<div id="page-landing" class="page">
+
+  <h2>Welcome</h2>
+  <p>
+    This tool calculates the <strong>empirical error-field penetration threshold δ</strong>
+    using Monte&nbsp;Carlo uncertainty propagation on published multi-machine scalings.
+  </p>
+
+  <h3>Scalings</h3>
+  <ul>
+    <li><strong>2026 O,L OLS / WLS</strong> — E.&thinsp;M. Bursch <em>et&nbsp;al.</em> 2026, submitted to <em>PPCF</em></li>
+    <li><strong>2020 O,L,H WLS / O,L WLS</strong> — N.&thinsp;C. Logan <em>et&nbsp;al.</em> 2020, <em>Plasma Phys. Control. Fusion</em> <b>62</b> 084001</li>
+  </ul>
+
+  <h3>Single-Point Mode</h3>
+  <p>
+    Enter the six plasma parameters manually, pick a scaling &amp; distribution,
+    then click <strong>Calculate</strong>. Each calculation is added to the plot so
+    you can <strong>overplot multiple cases</strong> (e.g.&nbsp;ITER vs.&nbsp;SPARC).
+    Click <strong>Clear Plots</strong> to reset.
+  </p>
+
+  <h3>Batch (CSV Upload) Mode</h3>
+  <p>Upload a <code>.csv</code> file. The <strong>first column must be a label or shot number</strong>;
+     the remaining six columns are the plasma parameters. Column headers are matched
+     <strong>case-insensitively</strong>.</p>
+
+  <h4>Required CSV format</h4>
+  <div class="csv-example">
+    <table>
+      <tr><th>label</th><th>n_e</th><th>B_T</th><th>beta_n</th><th>l_i</th><th>R_0</th><th>I_p</th></tr>
+      <tr><td>Shot 12345</td><td>9.8</td><td>5.3</td><td>1.8</td><td>1.0</td><td>6.2</td><td>14.9</td></tr>
+      <tr><td>SPARC-L</td><td>17.3</td><td>12.16</td><td>0.17</td><td>0.74</td><td>1.85</td><td>8.7</td></tr>
+      <tr><td>SPARC-H</td><td>28.8</td><td>12.16</td><td>0.98</td><td>0.72</td><td>1.85</td><td>8.7</td></tr>
+    </table>
+  </div>
+
+  <h4>Column definitions</h4>
+  <table class="def-table">
+    <tr><th>Column</th><th>Symbol</th><th>Units</th><th>Description</th></tr>
+    <tr><td><code>label</code></td><td>—</td><td>—</td><td>Shot number or free-text label (first column)</td></tr>
+    <tr><td><code>n_e</code></td><td>n<sub>e</sub></td><td>10<sup>19</sup>&nbsp;m<sup>−3</sup></td><td>Line-averaged electron density</td></tr>
+    <tr><td><code>B_T</code></td><td>|B<sub>T</sub>|</td><td>T</td><td>Toroidal magnetic field (absolute value used)</td></tr>
+    <tr><td><code>beta_n</code></td><td>β<sub>N</sub></td><td>—</td><td>Normalized beta</td></tr>
+    <tr><td><code>l_i</code></td><td>l<sub>i</sub></td><td>—</td><td>Internal inductance (must be ≠ 0)</td></tr>
+    <tr><td><code>R_0</code></td><td>R<sub>0</sub></td><td>m</td><td>Major radius</td></tr>
+    <tr><td><code>I_p</code></td><td>|I<sub>p</sub>|</td><td>MA</td><td>Plasma current (absolute value used)</td></tr>
+  </table>
+
+  <h3>Exponent Editor</h3>
+  <p>
+    The right-hand panel shows the scaling exponents for the selected scaling.
+    Editing any value automatically switches to <strong>Custom</strong> mode.
+    You can <strong>save</strong> custom scalings (stored in your browser) and
+    <strong>load / delete</strong> them later.
+  </p>
+
+  <h3>Plot Style</h3>
+  <p>
+    Click <strong>Plot Settings ⚙</strong> to customise fonts, colours, axis labels,
+    line widths, and figure size. Changes apply to the next render.
+  </p>
+
+  <h3>Exporting</h3>
+  <ul>
+    <li><strong>Save Plot (PNG)</strong> — downloads the current figure as a high-resolution PNG.</li>
+    <li><strong>Save Plot Data (CSV)</strong> — downloads every plotted distribution
+        (bin centres + PDF) plus all input parameters and results.</li>
+    <li><strong>Export Results to CSV</strong> (batch mode) — downloads the results table.</li>
+  </ul>
+
+  <br>
+  <button class="big-btn" onclick="showPage('app')">▶&ensp;Open Calculator</button>
+</div>
+
+<!-- ════════════════ APP PAGE ══════════════════════════ -->
+<div id="page-app" class="page" style="display:none">
+
+  <!-- ── Calculation Mode ──────────────────────────── -->
+  <fieldset class="mode-box">
+    <legend>Calculation Mode</legend>
+    <label><input type="radio" name="mode" value="single" checked
+                  onchange="toggleMode()"> Single Point</label>
+    <label><input type="radio" name="mode" value="batch"
+                  onchange="toggleMode()"> Batch (CSV Upload)</label>
+  </fieldset>
+
+  <!-- ── Top row: inputs + exponent editor ─────────── -->
+  <div class="top-row">
+    <fieldset id="input-box" class="panel">
+      <legend>Single-Point Inputs</legend>
+      <table class="input-table">
+        <tr><td class="lbl">Label / Shot #</td>
+            <td><input type="text" id="in_label" value="" placeholder="(optional)"></td></tr>
+        <tr><td class="lbl">n<sub>e</sub> [10<sup>19</sup> m<sup>−3</sup>]</td>
+            <td><input type="number" id="in_ne" step="any"></td></tr>
+        <tr><td class="lbl">|B<sub>T</sub>| [T]</td>
+            <td><input type="number" id="in_BT" step="any"></td></tr>
+        <tr><td class="lbl">β<sub>n</sub></td>
+            <td><input type="number" id="in_bn" step="any"></td></tr>
+        <tr><td class="lbl">l<sub>i</sub></td>
+            <td><input type="number" id="in_li" step="any"></td></tr>
+        <tr><td class="lbl">R<sub>0</sub> [m]</td>
+            <td><input type="number" id="in_R0" step="any"></td></tr>
+        <tr><td class="lbl">|I<sub>p</sub>| [MA]</td>
+            <td><input type="number" id="in_Ip" step="any"></td></tr>
+      </table>
+    </fieldset>
+
+    <fieldset class="panel exp-panel">
+      <legend>Scaling Exponents (edit → Custom)</legend>
+      <table class="input-table">
+        <tr><th>Parameter</th><th>Value</th><th>± Uncert.</th></tr>
+        <tr><td class="lbl">C (log₁₀)</td>
+            <td><input type="number" id="ex_C_v"   step="any" oninput="onExpChanged()"></td>
+            <td><input type="number" id="ex_C_u"   step="any" oninput="onExpChanged()"></td></tr>
+        <tr><td class="lbl">β<sub>n</sub>/l<sub>i</sub> exp</td>
+            <td><input type="number" id="ex_bnli_v" step="any" oninput="onExpChanged()"></td>
+            <td><input type="number" id="ex_bnli_u" step="any" oninput="onExpChanged()"></td></tr>
+        <tr><td class="lbl">|I<sub>p</sub>| exp</td>
+            <td><input type="number" id="ex_ip_v"  step="any" oninput="onExpChanged()"></td>
+            <td><input type="number" id="ex_ip_u"  step="any" oninput="onExpChanged()"></td></tr>
+        <tr><td class="lbl">R<sub>0</sub> exp</td>
+            <td><input type="number" id="ex_R_v"   step="any" oninput="onExpChanged()"></td>
+            <td><input type="number" id="ex_R_u"   step="any" oninput="onExpChanged()"></td></tr>
+        <tr><td class="lbl">n<sub>e</sub> exp</td>
+            <td><input type="number" id="ex_ne_v"  step="any" oninput="onExpChanged()"></td>
+            <td><input type="number" id="ex_ne_u"  step="any" oninput="onExpChanged()"></td></tr>
+        <tr><td class="lbl">|B<sub>T</sub>| exp</td>
+            <td><input type="number" id="ex_BT_v"  step="any" oninput="onExpChanged()"></td>
+            <td><input type="number" id="ex_BT_u"  step="any" oninput="onExpChanged()"></td></tr>
+      </table>
+      <div class="exp-buttons">
+        <button onclick="saveScaling()">Save Scaling…</button>
+        <button onclick="loadScalingDialog()">Load / Delete Saved…</button>
+      </div>
+    </fieldset>
+  </div>
+
+  <!-- ── Settings ──────────────────────────────────── -->
+  <fieldset class="panel">
+    <legend>Settings</legend>
+    <div class="settings-row">
+      <label>Scaling
+        <select id="sel_scaling" onchange="onScalingSelected()">
+          <option>2026 O,L OLS</option>
+          <option>2026 O,L WLS</option>
+          <option>2020 O,L,H WLS</option>
+          <option>2020 O,L WLS</option>
+          <option>Custom</option>
+        </select>
+      </label>
+      <label>MC Distribution
+        <select id="sel_dist">
+          <option value="normal">normal</option>
+          <option value="flat">flat</option>
+          <option value="normal truncated">normal truncated</option>
+        </select>
+      </label>
+      <label>MC Samples
+        <input type="number" id="in_nsample" value="1000000" min="1000" step="1000">
+      </label>
+    </div>
+  </fieldset>
+
+  <!-- ── Action buttons ────────────────────────────── -->
+  <div class="btn-row">
     <button id="btn_calc"    onclick="calcSingle()">Calculate (Single Point)</button>
     <button id="btn_csv"     onclick="document.getElementById('csv_file').click()" disabled>
       Load CSV &amp; Calculate Batch</button>
@@ -121,16 +206,21 @@
     <button onclick="clearOverplots()">Clear Plots</button>
     <button onclick="savePlotImage()">Save Plot (PNG)</button>
     <button onclick="savePlotData()">Save Plot Data (CSV)</button>
+    <button onclick="openPlotSettings()">Plot Settings ⚙</button>
   </div>
 
-<!-- ── Formula ─────────────────────────────────────── -->
-<div id="formula-box"></div>
+  <!-- ── Formula ───────────────────────────────────── -->
+  <div id="formula-box"></div>
 
-<!-- ── Results ─────────────────────────────────────── -->
-<div id="plot-box"></div>
-<div id="table-box"></div>
+  <!-- ── Results ───────────────────────────────────── -->
+  <div id="plot-box"></div>
+  <div id="table-box"></div>
 
-<!-- ── Load / Delete dialog (hidden) ───────────────── -->
+</div><!-- /page-app -->
+
+<!-- ════════════════ DIALOGS ══════════════════════════ -->
+
+<!-- Load / Delete saved scaling -->
 <dialog id="load-dialog">
   <h3>Saved Scalings</h3>
   <select id="saved-list" size="8" style="width:100%"></select>
@@ -138,6 +228,59 @@
     <button onclick="doLoadSaved()">Load</button>
     <button onclick="doDeleteSaved()">Delete</button>
     <button onclick="document.getElementById('load-dialog').close()">Cancel</button>
+  </div>
+</dialog>
+
+<!-- Plot settings -->
+<dialog id="plot-settings-dialog">
+  <h3>Plot Settings</h3>
+  <div class="ps-grid">
+    <label>Title Font Size
+      <input type="number" id="ps_titleSize" min="6" max="30" value="12"></label>
+    <label>Axis Label Font Size
+      <input type="number" id="ps_axisLabelSize" min="6" max="30" value="14"></label>
+    <label>Tick Font Size
+      <input type="number" id="ps_tickSize" min="6" max="30" value="12"></label>
+    <label>Legend Font Size
+      <input type="number" id="ps_legendSize" min="6" max="24" value="10"></label>
+    <label>Font Family
+      <select id="ps_fontFamily">
+        <option value="Times New Roman, serif">Times New Roman</option>
+        <option value="Georgia, serif">Georgia</option>
+        <option value="Computer Modern, serif">Computer Modern</option>
+        <option value="Arial, sans-serif">Arial</option>
+        <option value="Helvetica, sans-serif">Helvetica</option>
+        <option value="Courier New, monospace">Courier New</option>
+      </select>
+    </label>
+    <label>X-Axis Label
+      <input type="text" id="ps_xLabel" value="δ (Error-field penetration threshold)"></label>
+    <label>Y-Axis Label
+      <input type="text" id="ps_yLabel" value="Probability density"></label>
+    <label>Plot Width (px)
+      <input type="number" id="ps_width" min="300" max="2000" value="0" placeholder="auto"></label>
+    <label>Plot Height (px)
+      <input type="number" id="ps_height" min="200" max="1500" value="420"></label>
+    <label>Line Width (PDF)
+      <input type="number" id="ps_lineWidth" min="0.5" max="6" step="0.1" value="1.2"></label>
+    <label>Nominal Line Width
+      <input type="number" id="ps_nomLineWidth" min="0.5" max="6" step="0.1" value="2.0"></label>
+    <label>σ Line Width
+      <input type="number" id="ps_sigLineWidth" min="0.5" max="6" step="0.1" value="1.2"></label>
+    <label>Fill Opacity
+      <input type="number" id="ps_fillOpacity" min="0" max="1" step="0.05" value="0.20"></label>
+    <label>Background Color
+      <input type="color" id="ps_bgColor" value="#ffffff"></label>
+    <label>Grid Color
+      <input type="color" id="ps_gridColor" value="#dddddd"></label>
+  </div>
+  <h4>Per-Trace Color Overrides</h4>
+  <p class="ps-note">Leave blank to use defaults. Enter colors as hex (#ff0000) or CSS names.</p>
+  <div id="ps_colorOverrides"></div>
+  <div class="dialog-buttons">
+    <button onclick="applyPlotSettings()">Apply &amp; Re-render</button>
+    <button onclick="resetPlotSettings()">Reset Defaults</button>
+    <button onclick="document.getElementById('plot-settings-dialog').close()">Close</button>
   </div>
 </dialog>
 
