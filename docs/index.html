@@ -16,8 +16,8 @@
 
 <h1>Error-Field Penetration Threshold Calculator (Monte Carlo)</h1>
 <p class="subtitle">
-  2026 scalings: E.M. Bursch <em>et al.</em> 2026 Submitted to PPCF &nbsp;|&nbsp;
-  2020 scalings: N.C. Logan <em>et al.</em> 2020 <em>Plasma Phys. Control. Fusion</em> <b>62</b> 084001
+  E.M. Bursch <em>et al.</em> 2026 Submitted to PPCF &nbsp;|&nbsp;
+  N.C. Logan <em>et al.</em> 2020 <em>Plasma Phys. Control. Fusion</em> <b>62</b> 084001
 </p>
 
 <!-- ── Mode selection ──────────────────────────────── -->
@@ -110,15 +110,18 @@
 
 <!-- ── Action buttons ──────────────────────────────── -->
 <div class="btn-row">
-  <button id="btn_calc"    onclick="calcSingle()">Calculate (Single Point)</button>
-  <button id="btn_csv"     onclick="document.getElementById('csv_file').click()" disabled>
-    Load CSV &amp; Calculate Batch</button>
-  <input type="file" id="csv_file" accept=".csv" style="display:none"
-         onchange="loadCSV(this)">
-  <button class="preset-btn" id="pb1" onclick="fillITER()">ITER Defaults</button>
-  <button class="preset-btn" id="pb2" onclick="fillSPARC_L()">SPARC L-mode</button>
-  <button class="preset-btn" id="pb3" onclick="fillSPARC_H()">SPARC H-mode</button>
-</div>
+    <button id="btn_calc"    onclick="calcSingle()">Calculate (Single Point)</button>
+    <button id="btn_csv"     onclick="document.getElementById('csv_file').click()" disabled>
+      Load CSV &amp; Calculate Batch</button>
+    <input type="file" id="csv_file" accept=".csv" style="display:none"
+           onchange="loadCSV(this)">
+    <button class="preset-btn" id="pb1" onclick="fillITER()">ITER Defaults</button>
+    <button class="preset-btn" id="pb2" onclick="fillSPARC_L()">SPARC L-mode</button>
+    <button class="preset-btn" id="pb3" onclick="fillSPARC_H()">SPARC H-mode</button>
+    <button onclick="clearOverplots()">Clear Plots</button>
+    <button onclick="savePlotImage()">Save Plot (PNG)</button>
+    <button onclick="savePlotData()">Save Plot Data (CSV)</button>
+  </div>
 
 <!-- ── Formula ─────────────────────────────────────── -->
 <div id="formula-box"></div>

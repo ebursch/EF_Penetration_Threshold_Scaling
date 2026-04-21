@@ -1,7 +1,6 @@
 "use strict";
 
 // ─────────────────── Scalings ────────────────────────────
-// Each value: [nominal, uncertainty]
 const BUILTIN_SCALINGS = {
   "2026 O,L OLS": {
     C:[-4.31,0.03], bnli:[0.25,0.02], ip:[-0.97,0.02],
@@ -34,16 +33,21 @@ const EXP_IDS   = {
 let SCALINGS = JSON.parse(JSON.stringify(BUILTIN_SCALINGS));
 SCALINGS["Custom"] = JSON.parse(JSON.stringify(SCALINGS["2026 O,L OLS"]));
 
+// ─────────────────── Overplot state ──────────────────────
+const PLOT_COLORS = [
+  "steelblue","#e05050","#2ca02c","#d4a017","#9467bd",
+  "#8c564b","#17becf","#e377c2","#7f7f7f","#bcbd22",
+];
+let overplotTraces = [];   // {label, centers, pdf, deltaNom, psigL, psigU, inputs, scaling, dist, nsample}
+let overplotCounter = 0;
+
 // ─────────────────── Helpers ─────────────────────────────
 
 const $ = id => document.getElementById(id);
 const mode = () => document.querySelector('input[name="mode"]:checked').value;
 
-function fmtE(x, d=3) {
-  return x.toExponential(d);
-}
+function fmtE(x, d=3) { return x.toExponential(d); }
 
-// Box-Muller normal random
 function randn() {
   let u, v, s;
   do { u = Math.random()*2-1; v = Math.random()*2-1; s = u*u+v*v; }
@@ -85,10 +89,7 @@ function writeExponents(params) {
 }
 
 function currentScaling() { return $("sel_scaling").value; }
-
-function getActiveParams() {
-  return SCALINGS[currentScaling()];
-}
+function getActiveParams() { return SCALINGS[currentScaling()]; }
 
 // ─────────────────── Monte Carlo core ────────────────────
 
@@ -97,7 +98,6 @@ function monteCarloThreshold(inputs, params, dist, nsample) {
   const nk = keys.length;
   const bnli = inputs.beta_n / inputs.l_i;
 
-  // Generate random matrix (nk × nsample)
   const rands = [];
   for (let ki = 0; ki < nk; ki++) {
     let r;
@@ -115,11 +115,9 @@ function monteCarloThreshold(inputs, params, dist, nsample) {
     rands.push(r);
   }
 
-  // Nominal + MC exponent arrays
   const alphaV = keys.map(k => params[k][0]);
   const alphaU = keys.map(k => params[k][1]);
 
-  // Build delta distribution
   const delta = new Float64Array(nsample);
   delta.fill(1.0);
   let deltaNom = 1.0;
@@ -132,9 +130,8 @@ function monteCarloThreshold(inputs, params, dist, nsample) {
 
     if (key === "C") {
       deltaNom *= Math.pow(10, nom);
-      for (let i = 0; i < nsample; i++) {
+      for (let i = 0; i < nsample; i++)
         delta[i] *= Math.pow(10, nom + unc * r[i]);
-      }
     } else {
       let x;
       if      (key === "bnli") x = bnli;
@@ -143,18 +140,15 @@ function monteCarloThreshold(inputs, params, dist, nsample) {
       else if (key === "ne")   x = inputs.n_e;
       else if (key === "BT")   x = Math.abs(inputs.B_T);
       deltaNom *= Math.pow(x, nom);
-      for (let i = 0; i < nsample; i++) {
+      for (let i = 0; i < nsample; i++)
         delta[i] *= Math.pow(x, nom + unc * r[i]);
-      }
     }
   }
 
-  // Sort for percentiles
   const sorted = Float64Array.from(delta).sort();
   const psigL = percentile(sorted, 15.87);
   const psigU = percentile(sorted, 84.13);
 
-  // Histogram (1000 bins)
   const bins = 1000;
   const mn = sorted[0], mx = sorted[sorted.length - 1];
   const bw = (mx - mn) / bins;
@@ -205,7 +199,6 @@ function formulaLatex(name) {
       + `\\left(\\frac{\\beta_n}{l_i}\\right)^{0.15\\pm0.07}`
       + `\\,|I_p|^{0.00\\pm0.00}`;
 
-  // Dynamic (Custom or user-saved)
   const safe = name.replace(/_/g, "\\_");
   return `\\delta_{\\text{${safe}}} = 10^{${f(p.C[0],p.C[1])}}`
     + `\\left(\\frac{\\beta_n}{l_i}\\right)^{${f(p.bnli[0],p.bnli[1])}}`
@@ -275,6 +268,90 @@ function fillITER()    { fillInputs(9.8,  5.3,  1.8,  1.0,  6.2,  14.9); }
 function fillSPARC_L() { fillInputs(17.3, 12.16,0.17, 0.74, 1.85, 8.7);  }
 function fillSPARC_H() { fillInputs(28.8, 12.16,0.98, 0.72, 1.85, 8.7);  }
 
+// ─────────────────── Overplot rendering ──────────────────
+
+function buildPlotlyTraces() {
+  const traces = [];
+  for (let ti = 0; ti < overplotTraces.length; ti++) {
+    const t = overplotTraces[ti];
+    const color = PLOT_COLORS[ti % PLOT_COLORS.length];
+    const minus = t.deltaNom - t.psigL;
+    const plus  = t.psigU - t.deltaNom;
+
+    // PDF fill
+    traces.push({
+      x: Array.from(t.centers), y: Array.from(t.pdf),
+      type:"scatter", mode:"lines", fill:"tozeroy",
+      fillcolor: color.replace(")", ",0.2)").replace("rgb","rgba")
+                 || hexToRGBA(color, 0.2),
+      line:{color, width:1.2},
+      name: `${t.label} PDF`,
+      legendgroup: t.label,
+    });
+    // Nominal line
+    const ymax = Math.max(...t.pdf) * 1.05;
+    traces.push({
+      x:[t.deltaNom, t.deltaNom], y:[0, ymax],
+      mode:"lines", line:{color, dash:"solid", width:2},
+      name: `${t.label} δ=${fmtE(t.deltaNom)}`,
+      legendgroup: t.label,
+    });
+    // ±1σ lines
+    traces.push({
+      x:[t.psigL, t.psigL], y:[0, ymax],
+      mode:"lines", line:{color, dash:"dash", width:1.2},
+      name: `${t.label} −1σ (${fmtE(t.psigL,2)})`,
+      legendgroup: t.label, showlegend: false,
+    });
+    traces.push({
+      x:[t.psigU, t.psigU], y:[0, ymax],
+      mode:"lines", line:{color, dash:"dash", width:1.2},
+      name: `${t.label} +1σ (${fmtE(t.psigU,2)})`,
+      legendgroup: t.label, showlegend: false,
+    });
+  }
+  return traces;
+}
+
+function hexToRGBA(hex, alpha) {
+  hex = hex.replace("#","");
+  if (hex.length === 3) hex = hex[0]+hex[0]+hex[1]+hex[1]+hex[2]+hex[2];
+  const r = parseInt(hex.substring(0,2),16);
+  const g = parseInt(hex.substring(2,4),16);
+  const b = parseInt(hex.substring(4,6),16);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
+function renderOverplot() {
+  if (overplotTraces.length === 0) {
+    $("plot-box").innerHTML = "";
+    return;
+  }
+  const traces = buildPlotlyTraces();
+  // Build title from all traces
+  const titleParts = overplotTraces.map(t => {
+    const minus = t.deltaNom - t.psigL;
+    const plus  = t.psigU - t.deltaNom;
+    return `${t.label}: δ=${fmtE(t.deltaNom)} (−${fmtE(minus,2)}/+${fmtE(plus,2)})`;
+  });
+  const layout = {
+    title: {
+      text: titleParts.join("<br>"),
+      font: {size: overplotTraces.length > 3 ? 10 : 12},
+    },
+    xaxis: {
+      title: "δ (Error-field penetration threshold)",
+      exponentformat: "e",
+    },
+    yaxis: {title: "Probability density"},
+    showlegend: true,
+    legend: {font:{size:9}},
+    margin: {t: 30 + overplotTraces.length * 18, b:50, l:60, r:20},
+    height: 400 + Math.max(0, overplotTraces.length - 2) * 15,
+  };
+  Plotly.newPlot("plot-box", traces, layout, {responsive:true});
+}
+
 // ─────────────────── Single-point calc ───────────────────
 
 function readSingleInputs() {
@@ -301,36 +378,105 @@ function calcSingle() {
   try { res = monteCarloThreshold(inputs, params, dist, nsample); }
   catch(e) { alert("Calculation error: " + e.message); return; }
 
-  const { deltaNom, pdf, centers, psigL, psigU } = res;
-  const minus = deltaNom - psigL;
-  const plus  = psigU - deltaNom;
+  overplotCounter++;
+  const label = `#${overplotCounter} ${sName}`;
 
-  // Plot
-  const traceArea = {
-    x: Array.from(centers), y: Array.from(pdf),
-    type:"scatter", mode:"lines", fill:"tozeroy",
-    fillcolor:"rgba(70,130,180,0.3)", line:{color:"steelblue", width:1.2},
-    name:"PDF",
-  };
-  const mkLine = (xv,color,dash,label) => ({
-    x:[xv,xv], y:[0, Math.max(...pdf)*1.05],
-    mode:"lines", line:{color,dash,width:1.5}, name:label,
+  overplotTraces.push({
+    label,
+    centers:  res.centers,
+    pdf:      res.pdf,
+    deltaNom: res.deltaNom,
+    psigL:    res.psigL,
+    psigU:    res.psigU,
+    inputs:   {...inputs},
+    scaling:  sName,
+    dist,
+    nsample,
   });
-  const layout = {
-    title: `δ = ${fmtE(deltaNom)} (−${fmtE(minus,2)} / +${fmtE(plus,2)})<br>`
-         + `<span style="font-size:0.8em">${sName} | MC: ${nsample.toLocaleString()} | dist: ${dist}</span>`,
-    xaxis:{title:"δ (Error-field penetration threshold)"},
-    yaxis:{title:"Probability density"},
-    showlegend:true, margin:{t:70,b:50,l:60,r:20}, height: 380,
-  };
-  Plotly.newPlot("plot-box", [
-    traceArea,
-    mkLine(deltaNom,"black","solid","Nominal"),
-    mkLine(psigL,"red","dash",`−1σ (${fmtE(psigL,2)})`),
-    mkLine(psigU,"red","dash",`+1σ (${fmtE(psigU,2)})`),
-  ], layout, {responsive:true});
 
+  renderOverplot();
   $("table-box").innerHTML = "";
+}
+
+function clearOverplots() {
+  overplotTraces = [];
+  overplotCounter = 0;
+  $("plot-box").innerHTML = "";
+}
+
+// ─────────────────── Save plot image ─────────────────────
+
+function savePlotImage() {
+  const plotDiv = $("plot-box");
+  if (!plotDiv || !plotDiv.data || !plotDiv.data.length) {
+    alert("No plot to save."); return;
+  }
+  Plotly.downloadImage(plotDiv, {
+    format: "png", width: 1200, height: 700,
+    filename: "efp_threshold_plot",
+  });
+}
+
+// ─────────────────── Save plot data ──────────────────────
+
+function savePlotData() {
+  if (!overplotTraces.length) { alert("No plot data to save."); return; }
+
+  // Find the maximum number of bins across all traces
+  const maxBins = Math.max(...overplotTraces.map(t => t.centers.length));
+
+  // Build header
+  const hdrParts = ["bin_index"];
+  for (const t of overplotTraces) {
+    const s = t.label.replace(/,/g, ";");
+    hdrParts.push(`${s}_delta`, `${s}_pdf`);
+  }
+  // Metadata columns
+  hdrParts.push(""); // separator
+  hdrParts.push("trace","scaling","dist","nsample",
+                 "n_e","B_T","beta_n","l_i","R_0","I_p",
+                 "delta_nominal","minus_1sigma","plus_1sigma","approx_sigma");
+
+  const lines = [hdrParts.join(",")];
+
+  // Data rows: bin data + metadata (metadata only on first N rows)
+  const nMeta = overplotTraces.length;
+  for (let i = 0; i < Math.max(maxBins, nMeta); i++) {
+    const parts = [];
+    // Bin index
+    parts.push(i < maxBins ? i : "");
+    // PDF columns
+    for (const t of overplotTraces) {
+      if (i < t.centers.length) {
+        parts.push(t.centers[i], t.pdf[i]);
+      } else {
+        parts.push("", "");
+      }
+    }
+    // Separator
+    parts.push("");
+    // Metadata
+    if (i < nMeta) {
+      const t = overplotTraces[i];
+      const inp = t.inputs;
+      const minus = t.deltaNom - t.psigL;
+      const plus  = t.psigU - t.deltaNom;
+      parts.push(
+        t.label.replace(/,/g, ";"), t.scaling, t.dist, t.nsample,
+        inp.n_e, inp.B_T, inp.beta_n, inp.l_i, inp.R_0, inp.I_p,
+        t.deltaNom, minus, plus, (minus+plus)/2,
+      );
+    } else {
+      parts.push("","","","","","","","","","","","","","");
+    }
+    lines.push(parts.join(","));
+  }
+
+  const blob = new Blob([lines.join("\n")], {type:"text/csv"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "efp_plot_data.csv";
+  a.click();
 }
 
 // ─────────────────── CSV / batch ─────────────────────────
@@ -346,7 +492,6 @@ function loadCSV(fileInput) {
       const rows = results.data;
       if (!rows.length) { alert("CSV has no data rows."); return; }
 
-      // Case-insensitive column mapping
       const required = ["n_e","B_T","beta_n","l_i","R_0","I_p"];
       const fields = results.meta.fields;
       const colMap = {};
@@ -391,7 +536,6 @@ function loadCSV(fileInput) {
       if (errors.length) alert(`${errors.length} row(s) had errors:\n` + errors.slice(0,20).join("\n"));
       if (!results2.length) { alert("No valid results."); return; }
 
-      // Build table
       const cols = ["row","n_e","B_T","β_n","l_i","β_n/l_i","R_0","I_p","δ_nom","−1σ","+1σ","≈σ"];
       let html = `<table><tr>${cols.map(c=>`<th>${c}</th>`).join("")}</tr>`;
       for (const r of results2) {
@@ -410,8 +554,8 @@ function loadCSV(fileInput) {
 
       $("table-box").innerHTML = html;
       $("plot-box").innerHTML = "";
+      overplotTraces = [];
 
-      // Stash for export
       window._batchResults = results2;
     }
   });
@@ -458,7 +602,6 @@ function refreshDropdown() {
     opt.value = name; opt.textContent = name;
     sel.appendChild(opt);
   }
-  // Restore selection if still valid
   if ([...sel.options].some(o => o.value === cur)) sel.value = cur;
 }
 
@@ -525,7 +668,6 @@ function doDeleteSaved() {
     $("sel_scaling").value = "2026 O,L OLS";
     onScalingSelected();
   }
-  // Remove from dialog list
   for (const opt of list.options) {
     if (opt.value === name) { opt.remove(); break; }
   }
@@ -535,7 +677,6 @@ function doDeleteSaved() {
 // ─────────────────── Startup ─────────────────────────────
 
 (function init() {
-  // Load saved scalings into runtime
   const saved = getSavedScalings();
   for (const [name, p] of Object.entries(saved)) {
     if (!BUILTIN_NAMES.has(name)) SCALINGS[name] = p;
@@ -545,7 +686,6 @@ function doDeleteSaved() {
   writeExponents(SCALINGS[currentScaling()]);
   _updatingExp = false;
   toggleMode();
-  // Wait for KaTeX to load then render
   const waitKatex = setInterval(() => {
     if (typeof katex !== "undefined") {
       clearInterval(waitKatex);
