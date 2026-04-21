@@ -10,7 +10,7 @@ columns: n_e, B_T, beta_n, l_i, R_0, I_p. Results are displayed in a
 table and can be exported to CSV.
 
 2026 Scalings from E.M. Bursch et al 2026 Submitted to PPCF
-2020 Scalings from N.C. Logan et al 2020 Nucl. Fusion 60 086010
+2020 Scalings from N.C. Logan et al 2020 Plasma Phys. Control. Fusion 62 084001
 """
 import tkinter as tk
 from tkinter import messagebox, ttk, filedialog
@@ -25,7 +25,7 @@ import matplotlib as mpl
 
 formula_canvas_widget = None
 result_canvas_widget = None
-batch_results = []  # store for CSV export
+batch_results = []
 
 
 def get_formula_latex(name: str) -> str:
@@ -77,19 +77,19 @@ SCALINGS = {
         "BT_exp":   ( 0.20, 0.03),
     },
     "2020 O,L,H WLS": {
-        "C":        (-3.65, 0.03),
-        "ne_exp":   ( 0.58, 0.06),
-        "BT_exp":   (-1.13, 0.07),
-        "R_exp":    ( 0.10, 0.07),
-        "bnli_exp": (-0.20, 0.05),
+        "C":        (-3.62, 0.04),
+        "ne_exp":   ( 0.53, 0.06),
+        "BT_exp":   (-.95, 0.07),
+        "R_exp":    ( 0.14, 0.08),
+        "bnli_exp": (-0.19, 0.05),
         "ip_exp":   ( 0.00, 0.00),
     },
     "2020 O,L WLS": {
-        "C":        (-3.49, 0.05),
-        "ne_exp":   ( 0.65, 0.06),
-        "BT_exp":   (-1.17, 0.07),
-        "R_exp":    ( 0.17, 0.07),
-        "bnli_exp": ( 0.11, 0.07),
+        "C":        (-3.46, 0.05),
+        "ne_exp":   ( 0.64, 0.06),
+        "BT_exp":   (-1.14, 0.08),
+        "R_exp":    ( 0.20, 0.07),
+        "bnli_exp": ( 0.15, 0.07),
         "ip_exp":   ( 0.00, 0.00),
     },
 }
