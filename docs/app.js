@@ -27,8 +27,8 @@ function toggleDark() {
 const DEFAULT_PS = {
   titleSize: 12, axisLabelSize: 14, tickSize: 12, legendSize: 10,
   fontFamily: "Times New Roman, serif",
-  xLabel: "δ (Error-field penetration threshold)",
-  yLabel: "Normalized PDF",
+  xLabel: "δ (Dominant EF / B_T)",
+  yLabel: "Probability Density [a.u.]",
   width: 0, height: 420,
   lineWidth: 1.2, nomLineWidth: 2.0, sigLineWidth: 1.2,
   fillOpacity: 0.20,

@@ -16,9 +16,9 @@
 
 <!-- ── Top bar ─────────────────────────────────────── -->
 <div class="top-bar">
-  <h1>Error-Field Penetration Threshold Calculator</h1>
+  <h1>Error Field Penetration Threshold Calculator</h1>
   <div class="top-bar-right">
-    <button onclick="showPage('landing')">How-To / Help</button>
+    <button onclick="showPage('landing')">Info</button>
     <button onclick="showPage('app')">Calculator</button>
     <label class="dark-toggle">
       <input type="checkbox" id="dark-toggle" onchange="toggleDark()">
@@ -32,7 +32,7 @@
 
   <h2>Welcome</h2>
   <p>
-    This tool calculates the <strong>empirical error-field penetration threshold δ</strong>
+    This tool calculates the <strong>empirical error field penetration threshold δ</strong>
     using Monte&nbsp;Carlo uncertainty propagation on published multi-machine scalings.
   </p>
 
@@ -118,7 +118,7 @@
   <!-- ── Top row: inputs + exponent editor ─────────── -->
   <div class="top-row">
     <fieldset id="input-box" class="panel">
-      <legend>Single-Point Inputs</legend>
+      <legend>Operating Point Inputs</legend>
       <table class="input-table">
         <tr><td class="lbl">Label / Shot #</td>
             <td><input type="text" id="in_label" value="" placeholder="(optional)"></td></tr>
@@ -144,7 +144,7 @@
     <fieldset class="panel exp-panel">
       <legend>Scaling Exponents (edit → Custom)</legend>
       <table class="input-table">
-        <tr><th>Parameter</th><th>Value</th><th>± Uncert.</th></tr>
+        <tr><th>Parameter</th><th>Value</th><th>± Uncertainty</th></tr>
         <tr><td class="lbl">C (log₁₀)</td>
             <td><input type="number" id="ex_C_v"   step="any" oninput="onExpChanged()"></td>
             <td><input type="number" id="ex_C_u"   step="any" oninput="onExpChanged()"></td></tr>
@@ -204,7 +204,7 @@
       Load CSV &amp; Calculate Batch</button>
     <input type="file" id="csv_file" accept=".csv" style="display:none"
            onchange="loadCSV(this)">
-    <button class="preset-btn" id="pb1" onclick="fillITER()">ITER Defaults</button>
+    <button class="preset-btn" id="pb1" onclick="fillITER()">ITER Baseline</button>
     <button class="preset-btn" id="pb2" onclick="fillSPARC_L()">SPARC L-mode</button>
     <button class="preset-btn" id="pb3" onclick="fillSPARC_H()">SPARC H-mode</button>
     <button onclick="clearOverplots()">Clear Plots</button>
@@ -258,9 +258,9 @@
       </select>
     </label>
     <label>X-Axis Label
-      <input type="text" id="ps_xLabel" value="δ (Error-field penetration threshold)"></label>
+      <input type="text" id="ps_xLabel" value="δ (Dominant EF / B_T)"></label>
     <label>Y-Axis Label
-      <input type="text" id="ps_yLabel" value="Probability density"></label>
+      <input type="text" id="ps_yLabel" value="Probability Density [a.u.]"></label>
     <label>Plot Width (px)
       <input type="number" id="ps_width" min="300" max="2000" value="0" placeholder="auto"></label>
     <label>Plot Height (px)
