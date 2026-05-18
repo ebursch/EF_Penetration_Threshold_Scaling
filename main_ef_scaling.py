@@ -160,6 +160,33 @@ def monte_carlo_threshold(test_dict, scaling_title,
     return delta_nominal, delta_distrib, pdf, bin_edges, psigL, psigU
 
 
+# ─────────────────── Overlap-line helpers ────────────────
+
+def _overlap_value():
+    """Return (value, label) if the overlap line is enabled and numeric, else None."""
+    try:
+        if not overlap_enabled_var.get():
+            return None
+        x = float(overlap_value_var.get())
+    except (TypeError, ValueError, NameError):
+        return None
+    lbl = overlap_label_var.get().strip() or "Dominant mode overlap"
+    return x, lbl
+
+
+def _draw_overlap_line(ax, orient="v"):
+    """Draw the user's overlap line on `ax` (vertical by default, horizontal if orient='h')."""
+    v = _overlap_value()
+    if v is None:
+        return
+    x, lbl = v
+    legend_label = f"{lbl} ({x:.2e})"
+    if orient == "h":
+        ax.axhline(x, color="seagreen", ls=":", lw=1.6, label=legend_label)
+    else:
+        ax.axvline(x, color="seagreen", ls=":", lw=1.6, label=legend_label)
+
+
 # ─────────────────── Single-point calc ───────────────────
 
 def calculate_threshold_single():
@@ -212,6 +239,7 @@ def calculate_threshold_single():
     ax.axvline(delta_nominal, color="k", ls="-",  lw=1.5, label="Nominal")
     ax.axvline(psigL, color="r", ls="--", lw=1.2, label=rf"$-1\sigma$ ({psigL:.2e})")
     ax.axvline(psigU, color="r", ls="--", lw=1.2, label=rf"$+1\sigma$ ({psigU:.2e})")
+    _draw_overlap_line(ax)
     ax.set_xlabel(r"$\delta$  (Error-field penetration threshold)")
     ax.set_ylabel("Probability density")
     ax.set_title(
@@ -256,6 +284,13 @@ def load_csv_and_calculate():
                 for req in REQUIRED_COLUMNS:
                     if stripped.lower() == req.lower():
                         col_map[req] = raw  # map required name → actual header
+            # Optional columns for time-series / per-shot views
+            for raw in raw_fieldnames:
+                stripped = raw.strip().lower()
+                if stripped == "time_ms" and "time_ms" not in col_map:
+                    col_map["time_ms"] = raw
+                elif stripped == "shot" and "shot" not in col_map:
+                    col_map["shot"] = raw
             missing = REQUIRED_COLUMNS - col_map.keys()
             if missing:
                 raise ValueError(
@@ -296,26 +331,43 @@ def load_csv_and_calculate():
                 "l_i": l_i, "R_0": R_0, "I_p": abs(I_p),
             }
 
-            (delta_nom, _, _, _, psigL, psigU) = monte_carlo_threshold(
+            (delta_nom, _delta_distrib, pdf, bin_edges,
+             psigL, psigU) = monte_carlo_threshold(
                 test_dict, s, dist=dist, nsample=nsample)
 
             minus = delta_nom - psigL
             plus  = psigU - delta_nom
             sigma = (plus + minus) / 2.0
 
+            time_ms = None
+            if "time_ms" in col_map:
+                try:
+                    time_ms = float(row[col_map["time_ms"]])
+                except (ValueError, TypeError):
+                    time_ms = None
+            shot_id = None
+            if "shot" in col_map:
+                shot_id = (row[col_map["shot"]] or "").strip() or None
+
             batch_results.append({
-                "row":       i,
-                "n_e":       n_e,
-                "B_T":       B_T,
-                "beta_n":    beta_n,
-                "l_i":       l_i,
+                "row":        i,
+                "n_e":        n_e,
+                "B_T":        B_T,
+                "beta_n":     beta_n,
+                "l_i":        l_i,
                 "beta_n_l_i": beta_n / l_i,
-                "R_0":       R_0,
-                "I_p":       I_p,
-                "delta_nom": delta_nom,
-                "minus":     minus,
-                "plus":      plus,
-                "sigma":     sigma,
+                "R_0":        R_0,
+                "I_p":        I_p,
+                "delta_nom":  delta_nom,
+                "minus":      minus,
+                "plus":       plus,
+                "sigma":      sigma,
+                "psigL":      psigL,
+                "psigU":      psigU,
+                "pdf":        pdf,
+                "bin_edges":  bin_edges,
+                "time_ms":    time_ms,
+                "shot":       shot_id,
             })
 
         except Exception as e:
@@ -352,6 +404,7 @@ def load_csv_and_calculate():
         yscrollcommand=tree_scroll_y.set,
         xscrollcommand=tree_scroll_x.set,
         height=min(len(batch_results), 20),
+        selectmode="extended",
     )
     tree_scroll_y.config(command=tree.yview)
     tree_scroll_x.config(command=tree.xview)
@@ -360,8 +413,9 @@ def load_csv_and_calculate():
         tree.heading(col, text=col)
         tree.column(col, width=90, anchor="center")
 
-    for r in batch_results:
-        tree.insert("", "end", values=(
+    iid_to_index: dict[str, int] = {}
+    for idx, r in enumerate(batch_results):
+        iid = tree.insert("", "end", values=(
             r["row"],
             f"{r['n_e']:.4g}",
             f"{r['B_T']:.4g}",
@@ -375,6 +429,7 @@ def load_csv_and_calculate():
             f"{r['plus']:.3e}",
             f"{r['sigma']:.3e}",
         ))
+        iid_to_index[iid] = idx
 
     tree_scroll_y.pack(side="right", fill="y")
     tree_scroll_x.pack(side="bottom", fill="x")
@@ -393,6 +448,18 @@ def load_csv_and_calculate():
     tk.Button(
         summary_frame, text="Export Results to CSV",
         command=export_batch_results,
+    ).pack(side="right", padx=8)
+
+    tk.Button(
+        summary_frame, text="Plot Selected Row(s)",
+        command=lambda: plot_selected_rows(tree, iid_to_index),
+    ).pack(side="right", padx=8)
+
+    have_times = all(r.get("time_ms") is not None for r in batch_results)
+    tk.Button(
+        summary_frame, text="Plot δ vs time",
+        command=plot_delta_vs_time,
+        state="normal" if have_times else "disabled",
     ).pack(side="right", padx=8)
 
     # Update the stored widget ref so single-mode can clear it later
@@ -440,6 +507,105 @@ def export_batch_results():
         messagebox.showinfo("Export", f"Results saved to:\n{filepath}")
     except Exception as e:
         messagebox.showerror("Export Error", str(e))
+
+
+# ─────────────────── Subplot windows ─────────────────────
+
+_PALETTE = ["steelblue", "darkorange", "seagreen", "crimson",
+            "purple", "olive", "teal", "saddlebrown"]
+
+
+def _row_label(r):
+    parts = [f"row {r['row']}"]
+    if r.get("shot"):
+        parts.append(f"shot {r['shot']}")
+    if r.get("time_ms") is not None:
+        parts.append(f"t={r['time_ms']:.0f} ms")
+    return "  ".join(parts)
+
+
+def _open_plot_window(title, fig):
+    win = tk.Toplevel(root)
+    win.title(title)
+    canvas = FigureCanvasTkAgg(fig, master=win)
+    canvas.draw()
+    canvas.get_tk_widget().pack(fill="both", expand=True)
+
+
+def plot_selected_rows(tree, iid_to_index):
+    iids = tree.selection()
+    if not iids:
+        messagebox.showinfo(
+            "Plot Selected",
+            "Select one or more rows in the table first.\n"
+            "(Click a row, then ⌘-click / Shift-click others to extend.)")
+        return
+
+    indices = [iid_to_index[i] for i in iids if i in iid_to_index]
+    if not indices:
+        return
+
+    mpl.rcParams["mathtext.fontset"] = "dejavuserif"
+    fig = Figure(figsize=(8.5, 4.5), dpi=120)
+    ax = fig.add_subplot(111)
+
+    for k, idx in enumerate(indices):
+        r = batch_results[idx]
+        color = _PALETTE[k % len(_PALETTE)]
+        be = r["bin_edges"]
+        bc = 0.5 * (be[:-1] + be[1:])
+        ax.fill_between(bc, r["pdf"], alpha=0.30, color=color)
+        ax.plot(bc, r["pdf"], color=color, lw=1.2, label=_row_label(r))
+        ax.axvline(r["delta_nom"], color=color, ls="-", lw=1.2, alpha=0.9)
+
+    _draw_overlap_line(ax)
+    ax.set_xlabel(r"$\delta$  (Error-field penetration threshold)")
+    ax.set_ylabel("Probability density")
+    ax.set_title(f"{len(indices)} selected row(s)", fontsize=10)
+    ax.legend(fontsize=8, loc="best")
+    fig.tight_layout()
+    _open_plot_window("Selected rows — δ distributions", fig)
+
+
+def plot_delta_vs_time():
+    if not batch_results:
+        return
+    if not all(r.get("time_ms") is not None for r in batch_results):
+        messagebox.showerror(
+            "Plot δ vs time",
+            "The loaded CSV does not have a `time_ms` column on every row.")
+        return
+
+    # Group by shot (None → single group "all").
+    groups: dict[str, list[dict]] = {}
+    for r in batch_results:
+        key = r.get("shot") or "all"
+        groups.setdefault(key, []).append(r)
+
+    mpl.rcParams["mathtext.fontset"] = "dejavuserif"
+    fig = Figure(figsize=(8.5, 4.5), dpi=120)
+    ax = fig.add_subplot(111)
+
+    for k, (shot, rs) in enumerate(groups.items()):
+        rs_sorted = sorted(rs, key=lambda r: r["time_ms"])
+        t = np.array([r["time_ms"] for r in rs_sorted])
+        nom = np.array([r["delta_nom"] for r in rs_sorted])
+        lo  = np.array([r["psigL"]     for r in rs_sorted])
+        hi  = np.array([r["psigU"]     for r in rs_sorted])
+        color = _PALETTE[k % len(_PALETTE)]
+        label = f"shot {shot}" if shot != "all" else "δ_nominal"
+        ax.plot(t, nom, marker="o", color=color, lw=1.4, label=label)
+        ax.fill_between(t, lo, hi, color=color, alpha=0.20)
+
+    _draw_overlap_line(ax, orient="h")
+    ax.set_xlabel("time (ms)")
+    ax.set_ylabel(r"$\delta_\mathrm{nominal}$")
+    ax.ticklabel_format(axis="y", style="sci", scilimits=(0, 0))
+    ax.set_title("Nominal δ vs time (±1σ band)", fontsize=10)
+    ax.legend(fontsize=8, loc="best")
+    ax.grid(alpha=0.25)
+    fig.tight_layout()
+    _open_plot_window("δ vs time", fig)
 
 
 # ─────────────────── Formula display ─────────────────────
@@ -555,6 +721,21 @@ ttk.Combobox(
 tk.Label(settings_frame, text="MC Samples").grid(row=2, column=0, sticky="e", padx=4, pady=2)
 nsample_var = tk.StringVar(value="1000000")
 tk.Entry(settings_frame, textvariable=nsample_var, width=22).grid(row=2, column=1, padx=4, pady=2)
+
+# Dominant-mode overlap reference line
+overlap_enabled_var = tk.BooleanVar(value=False)
+overlap_value_var   = tk.StringVar(value="")
+overlap_label_var   = tk.StringVar(value="Dominant mode overlap")
+
+tk.Checkbutton(
+    settings_frame, text="Overlap δ:", variable=overlap_enabled_var,
+).grid(row=3, column=0, sticky="e", padx=4, pady=2)
+
+_overlap_row = tk.Frame(settings_frame)
+_overlap_row.grid(row=3, column=1, sticky="w", padx=4, pady=2)
+tk.Entry(_overlap_row, textvariable=overlap_value_var, width=10).pack(side="left")
+tk.Label(_overlap_row, text="  Label:").pack(side="left")
+tk.Entry(_overlap_row, textvariable=overlap_label_var, width=22).pack(side="left")
 
 # ── Action buttons ───────────────────────────────────────
 btn_frame = tk.Frame(root)

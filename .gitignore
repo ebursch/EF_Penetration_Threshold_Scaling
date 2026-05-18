@@ -1,1 +1,18 @@
 temp.ipynb
+run_fetch.sh
+run_fetch.py
+shots_times.py
+data.csv
+176857_scan.csv
+efp_plot_data (1).csv
+.gitignore
+__pycache__/fetch_mds_data.cpython-312.pyc
+__pycache__/shots_times.example.cpython-312.pyc
+.gitignore
+.gitignore
+.gitignore
+__pycache__/shots_times.cpython-312.pyc
+shots_times.example.py
+plot_mc.py
+fetch_mds_data.py
+efp_plot_data (1).png
