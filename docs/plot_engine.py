@@ -282,6 +282,27 @@ def render_overplot(traces, settings) -> str:
                     ax_cdf.axvline(
                         t["deltaNom"], color=color, lw=nom_w, ls=nom_style, alpha=0.7,
                     )
+                if show_sigma:
+                    ax_cdf.axvline(
+                        t["psigL"], color=color, lw=sig_w, ls=sig_style, alpha=0.8,
+                    )
+                    ax_cdf.axvline(
+                        t["psigU"], color=color, lw=sig_w, ls=sig_style, alpha=0.8,
+                    )
+
+        # Horizontal CDF reference lines at the lower / upper percentile
+        # levels — anchors the user-typed values directly on the CDF axis.
+        cdf_levels = settings.get("cdfLevels")
+        if ax_cdf is not None and show_sigma and cdf_levels:
+            try:
+                lo_lvl, hi_lvl = (float(cdf_levels[0]), float(cdf_levels[1]))
+                for lvl in (lo_lvl, hi_lvl):
+                    ax_cdf.axhline(
+                        lvl, color="#666", lw=max(0.8, sig_w * 0.7),
+                        ls=":", alpha=0.7,
+                    )
+            except (TypeError, ValueError, IndexError):
+                pass
 
         # Overlap reference line + per-trace penetration probability stats.
         ov = settings.get("overlap")
@@ -468,10 +489,11 @@ def render_delta_vs_time(rows, settings) -> str:
 
         title = settings.get("title")
         if title is None:
+            band = settings.get("boundLabel") or "±1σ band"
             title = (
-                "Nominal δ vs time (±1σ band)"
+                f"Nominal δ vs time ({band})"
                 if N == 1
-                else "Nominal δ vs time (±1σ band) — stacked subplots"
+                else f"Nominal δ vs time ({band}) — stacked subplots"
             )
         if title:
             fig.suptitle(title, fontsize=settings.get("titleSize", 13))

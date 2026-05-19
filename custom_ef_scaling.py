@@ -27,6 +27,8 @@ import matplotlib as mpl
 formula_canvas_widget = None
 result_canvas_widget = None
 batch_results = []
+batch_bound_config = None
+batch_input_fieldnames = []
 _updating_exponents = False
 
 # ── Saved-scalings file (next to this script) ────────────
@@ -344,10 +346,65 @@ def load_saved_scaling():
         side="right", padx=10)
 
 
+# ─────────────────── Bound-mode helpers ──────────────────
+
+_SIGMA_BOUND_CONFIG = {
+    "percentiles": (15.87, 84.13),
+    "cdf_levels":  (15.87, 84.13),
+    "neg_latex":   r"$-1\sigma$",
+    "pos_latex":   r"$+1\sigma$",
+    "neg_col":     "−1σ",
+    "pos_col":     "+1σ",
+    "sym_col":     "≈σ",
+    "neg_csv":     "minus_1sigma",
+    "pos_csv":     "plus_1sigma",
+    "sym_csv":     "approx_sigma",
+    "summary":     "±1σ (CDF 15.87 / 84.13 %)",
+}
+
+
+def _bound_config():
+    """Return the bound-mode config used to label and compute MC bounds.
+
+    Inputs are interpreted as CDF percentiles (cumulative probability at or
+    below the lower / upper bound). ±1σ is the canonical 15.87 / 84.13 case.
+    """
+    try:
+        mode = bound_mode_var.get()
+    except (NameError, AttributeError):
+        return dict(_SIGMA_BOUND_CONFIG)
+
+    if mode == "cdf":
+        try:
+            lo_cdf = float(lower_pct_var.get())
+            hi_cdf = float(upper_pct_var.get())
+        except (ValueError, TypeError):
+            lo_cdf, hi_cdf = 15.87, 84.13
+        lo_cdf = max(0.0, min(lo_cdf, 100.0))
+        hi_cdf = max(0.0, min(hi_cdf, 100.0))
+        if lo_cdf > hi_cdf:
+            lo_cdf, hi_cdf = hi_cdf, lo_cdf
+        return {
+            "percentiles": (lo_cdf, hi_cdf),
+            "cdf_levels":  (lo_cdf, hi_cdf),
+            "neg_latex":   rf"$\mathrm{{CDF}}={lo_cdf:g}\%$",
+            "pos_latex":   rf"$\mathrm{{CDF}}={hi_cdf:g}\%$",
+            "neg_col":     f"@{lo_cdf:g}%",
+            "pos_col":     f"@{hi_cdf:g}%",
+            "sym_col":     "Δ½",
+            "neg_csv":     f"lower_{lo_cdf:g}cdf".replace(".", "p"),
+            "pos_csv":     f"upper_{hi_cdf:g}cdf".replace(".", "p"),
+            "sym_csv":     "half_width",
+            "summary":     f"CDF {lo_cdf:g}% / {hi_cdf:g}%",
+        }
+    return dict(_SIGMA_BOUND_CONFIG)
+
+
 # ─────────────────── Monte Carlo core ────────────────────
 
 def monte_carlo_threshold(test_dict, scaling_title,
-                          dist="normal", nsample=int(1e6), bins=1000):
+                          dist="normal", nsample=int(1e6), bins=1000,
+                          percentiles=(15.87, 84.13)):
     nsample = int(nsample)
     params = SCALINGS[scaling_title]
     length = len(params)
@@ -391,7 +448,7 @@ def monte_carlo_threshold(test_dict, scaling_title,
             delta_distrib = delta_distrib * x ** alpha_mc[key]
 
     pdf, bin_edges = np.histogram(delta_distrib, bins=bins, density=True)
-    psigL, psigU = np.percentile(delta_distrib, [15.87, 84.13])
+    psigL, psigU = np.percentile(delta_distrib, list(percentiles))
 
     return delta_nominal, delta_distrib, pdf, bin_edges, psigL, psigU
 
@@ -463,11 +520,13 @@ def calculate_threshold_single():
     s       = scaling_var.get()
     dist    = dist_var.get()
     nsample = int(float(nsample_var.get()))
+    bc      = _bound_config()
 
     try:
         (delta_nominal, delta_distrib,
          pdf, bin_edges, psigL, psigU) = monte_carlo_threshold(
-            test_dict, s, dist=dist, nsample=nsample)
+            test_dict, s, dist=dist, nsample=nsample,
+            percentiles=bc["percentiles"])
     except Exception as e:
         messagebox.showerror("Calculation Error", str(e))
         return
@@ -485,14 +544,16 @@ def calculate_threshold_single():
     ax.fill_between(bc, pdf, alpha=0.35, color="steelblue")
     ax.plot(bc, pdf, color="steelblue", lw=1.2)
     ax.axvline(delta_nominal, color="k", ls="-",  lw=1.5, label="Nominal")
-    ax.axvline(psigL, color="r", ls="--", lw=1.2, label=rf"$-1\sigma$ ({psigL:.2e})")
-    ax.axvline(psigU, color="r", ls="--", lw=1.2, label=rf"$+1\sigma$ ({psigU:.2e})")
+    ax.axvline(psigL, color="r", ls="--", lw=1.2,
+               label=f"{bc['neg_latex']} ({psigL:.2e})")
+    ax.axvline(psigU, color="r", ls="--", lw=1.2,
+               label=f"{bc['pos_latex']} ({psigU:.2e})")
     ax.set_xlabel(r"$\delta$  (Error-field penetration threshold)")
     ax.set_ylabel("Probability density")
     ax.set_title(
         rf"$\delta = {delta_nominal:.3e}$"
         rf"$\;(-{delta_nominal - psigL:.2e}\;/\;+{psigU - delta_nominal:.2e})$"
-        f"\n{s}  |  MC: {nsample:,}  |  dist: {dist}",
+        f"\n{s}  |  MC: {nsample:,}  |  dist: {dist}  |  bounds: {bc['summary']}",
         #f"  |  $\\beta_n/l_i$ = {beta_n / l_i:.3f}",
         fontsize=10)
     ax.legend(fontsize=8)
@@ -507,7 +568,7 @@ def calculate_threshold_single():
 # ─────────────────── CSV / batch calc ────────────────────
 
 def load_csv_and_calculate():
-    global batch_results, result_canvas_widget
+    global batch_results, batch_bound_config, batch_input_fieldnames, result_canvas_widget
 
     filepath = filedialog.askopenfilename(
         title="Select CSV File",
@@ -539,6 +600,7 @@ def load_csv_and_calculate():
                     f"Required: {', '.join(sorted(REQUIRED_COLUMNS))}"
                 )
             rows = list(reader)
+            batch_input_fieldnames = [f for f in (raw_fieldnames or []) if f]
     except Exception as e:
         messagebox.showerror("CSV Error", str(e))
         return
@@ -550,6 +612,8 @@ def load_csv_and_calculate():
     s       = scaling_var.get()
     dist    = dist_var.get()
     nsample = int(float(nsample_var.get()))
+    bc      = _bound_config()
+    batch_bound_config = bc
 
     batch_results = []
     errors = []
@@ -572,7 +636,8 @@ def load_csv_and_calculate():
             }
 
             (delta_nom, _, _, _, psigL, psigU) = monte_carlo_threshold(
-                test_dict, s, dist=dist, nsample=nsample)
+                test_dict, s, dist=dist, nsample=nsample,
+                percentiles=bc["percentiles"])
 
             minus = delta_nom - psigL
             plus  = psigU - delta_nom
@@ -591,6 +656,7 @@ def load_csv_and_calculate():
                 "minus":     minus,
                 "plus":      plus,
                 "sigma":     sigma,
+                "raw_row":   dict(row),
             })
 
         except Exception as e:
@@ -615,7 +681,8 @@ def load_csv_and_calculate():
         w.destroy()
 
     columns = ("row", "n_e", "B_T", "β_n", "l_i", "β_n/l_i",
-               "R_0", "I_p", "δ_nom", "−1σ", "+1σ", "≈σ")
+               "R_0", "I_p", "δ_nom",
+               bc["neg_col"], bc["pos_col"], bc["sym_col"])
 
     container = tk.Frame(result_frame)
     container.pack(fill="both", expand=True)
@@ -661,7 +728,7 @@ def load_csv_and_calculate():
     tk.Label(
         summary_frame,
         text=f"Processed {len(batch_results)} row(s)  |  Scaling: {s}  |  "
-             f"MC samples: {nsample:,}  |  dist: {dist}",
+             f"MC samples: {nsample:,}  |  dist: {dist}  |  bounds: {bc['summary']}",
         font=("TkDefaultFont", 9, "italic"),
     ).pack(side="left", padx=8)
 
@@ -687,31 +754,36 @@ def export_batch_results():
     if not filepath:
         return
 
-    fieldnames = [
-        "row", "n_e", "B_T", "beta_n", "l_i", "beta_n_l_i",
-        "R_0", "I_p", "delta_nominal", "minus_1sigma",
-        "plus_1sigma", "approx_sigma",
+    bc = batch_bound_config or _bound_config()
+
+    # Computed columns the export always populates. When an input column has
+    # the same name, the computed value wins.
+    computed = [
+        ("beta_n_l_i",   lambda r: r["beta_n_l_i"]),
+        ("delta_nominal", lambda r: r["delta_nom"]),
+        (bc["neg_csv"],  lambda r: r["minus"]),
+        (bc["pos_csv"],  lambda r: r["plus"]),
+        (bc["sym_csv"],  lambda r: r["sigma"]),
     ]
+
+    # Preserve every input column in its original order, then append any
+    # computed columns that weren't already present.
+    input_cols = list(batch_input_fieldnames or [])
+    appended   = [name for name, _ in computed if name not in input_cols]
+    fieldnames = ["row"] + input_cols + appended
 
     try:
         with open(filepath, "w", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
             writer.writeheader()
             for r in batch_results:
-                writer.writerow({
-                    "row":            r["row"],
-                    "n_e":            r["n_e"],
-                    "B_T":            r["B_T"],
-                    "beta_n":         r["beta_n"],
-                    "l_i":            r["l_i"],
-                    "beta_n_l_i":     r["beta_n_l_i"],
-                    "R_0":            r["R_0"],
-                    "I_p":            r["I_p"],
-                    "delta_nominal":  r["delta_nom"],
-                    "minus_1sigma":   r["minus"],
-                    "plus_1sigma":    r["plus"],
-                    "approx_sigma":   r["sigma"],
-                })
+                raw = r.get("raw_row") or {}
+                out = {"row": r["row"]}
+                for c in input_cols:
+                    out[c] = raw.get(c, "")
+                for name, getter in computed:
+                    out[name] = getter(r)
+                writer.writerow(out)
         messagebox.showinfo("Export", f"Results saved to:\n{filepath}")
     except Exception as e:
         messagebox.showerror("Export Error", str(e))
@@ -873,6 +945,34 @@ ttk.Combobox(
 tk.Label(settings_frame, text="MC Samples").grid(row=2, column=0, sticky="e", padx=4, pady=2)
 nsample_var = tk.StringVar(value="1000000")
 tk.Entry(settings_frame, textvariable=nsample_var, width=22).grid(row=2, column=1, padx=4, pady=2)
+
+# Bound-type selector (±1σ vs custom CDF lower / upper percentile)
+bound_mode_var = tk.StringVar(value="sigma")
+lower_pct_var  = tk.StringVar(value="15.87")
+upper_pct_var  = tk.StringVar(value="84.13")
+
+
+def _populate_sigma_pcts():
+    """Sigma mode → CDF 15.87 / 84.13 (the percentile equivalent of ±1σ)."""
+    lower_pct_var.set("15.87")
+    upper_pct_var.set("84.13")
+
+
+tk.Label(settings_frame, text="Bound type").grid(row=3, column=0, sticky="e", padx=4, pady=2)
+_bound_row = tk.Frame(settings_frame)
+_bound_row.grid(row=3, column=1, sticky="w", padx=4, pady=2)
+tk.Radiobutton(
+    _bound_row, text="±1σ", variable=bound_mode_var, value="sigma",
+    command=_populate_sigma_pcts,
+).pack(side="left")
+tk.Radiobutton(
+    _bound_row, text="Custom CDF:", variable=bound_mode_var, value="cdf",
+).pack(side="left", padx=(10, 4))
+tk.Label(_bound_row, text="lower").pack(side="left")
+tk.Entry(_bound_row, textvariable=lower_pct_var, width=6).pack(side="left")
+tk.Label(_bound_row, text="%   upper").pack(side="left")
+tk.Entry(_bound_row, textvariable=upper_pct_var, width=6).pack(side="left")
+tk.Label(_bound_row, text="%").pack(side="left")
 
 # ── Action buttons ───────────────────────────────────────
 btn_frame = tk.Frame(root)

@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Error Field Penetration Threshold Calculator</title>
-  <link rel="stylesheet" href="style.css?v=11" />
+  <link rel="stylesheet" href="style.css?v=15" />
   <link rel="stylesheet"
         href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css" />
   <script defer
@@ -220,6 +220,24 @@
         <input type="text" id="in_overlap_label" value="Dominant mode overlap"
                style="width:14em" oninput="rerenderLast()">
       </label>
+    </div>
+    <div class="settings-row">
+      <span style="font-style:normal">Bound type:</span>
+      <label><input type="radio" name="bound_mode" value="sigma" checked
+                    onchange="onBoundModeChange()"> ±1σ</label>
+      <label><input type="radio" name="bound_mode" value="cdf"
+                    onchange="onBoundModeChange()"> Custom CDF</label>
+      <label>lower
+        <input type="number" id="in_lower_pct" value="15.87" step="any" min="0" max="100"
+               style="width:5em">%
+      </label>
+      <label>upper
+        <input type="number" id="in_upper_pct" value="84.13" step="any" min="0" max="100"
+               style="width:5em">%
+      </label>
+      <span class="hint" style="font-style:italic;opacity:0.7">
+        (recompute to apply)
+      </span>
     </div>
   </fieldset>
 
@@ -531,6 +549,6 @@
       <button onclick="document.getElementById('load-inputs-dialog').close()">Cancel</button>
     </div>
   </dialog>
-<script src="app.js?v=11"></script>
+<script src="app.js?v=15"></script>
 </body>
 </html>

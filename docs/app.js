@@ -225,7 +225,9 @@ function _renderStatsPanel() {
   wrap.style.display = "";
 
   const ov = getOverlapInfo();
-  const header = ["Trace", "Nominal δ_crit", "−1σ", "+1σ"];
+  const hdrCfg = (overplotTraces[overplotTraces.length - 1] || {}).boundCfg
+                 || currentBoundConfig();
+  const header = ["Trace", "Nominal δ_crit", hdrCfg.negCol, hdrCfg.posCol];
   if (ov) header.push("δ_applied/δ_nom", "Prob. of EF Pen.");
 
   let html = `<table><thead><tr>${header.map(h => `<th>${h}</th>`).join("")}</tr></thead><tbody>`;
@@ -590,6 +592,65 @@ const $ = id => document.getElementById(id);
 const mode = () => document.querySelector('input[name="mode"]:checked').value;
 function fmtE(x, d=3) { return x.toExponential(d); }
 
+// Bound-mode config. Inputs are CDF percentiles (the cumulative probability
+// at or below each bound). Mirrors the desktop Python `_bound_config()`.
+const _SIGMA_BOUND_CFG = {
+  mode: "sigma",
+  percentiles: [15.87, 84.13],
+  cdfLevels:   [15.87, 84.13],
+  negLatex:  "−1σ",
+  posLatex:  "+1σ",
+  negCol:    "−1σ",
+  posCol:    "+1σ",
+  symCol:    "≈σ",
+  negCsv:    "minus_1sigma",
+  posCsv:    "plus_1sigma",
+  symCsv:    "approx_sigma",
+  summary:   "±1σ (CDF 15.87 / 84.13 %)",
+  bandLabel: "±1σ band",
+};
+
+// When the user switches to ±1σ, write the canonical Gaussian CDF
+// percentiles (15.87 / 84.13) into the lower/upper boxes. Custom CDF
+// values typed by the user are preserved when switching back.
+function onBoundModeChange() {
+  const radio = document.querySelector('input[name="bound_mode"]:checked');
+  if (radio && radio.value === "sigma") {
+    const lo = $("in_lower_pct"); if (lo) lo.value = "15.87";
+    const hi = $("in_upper_pct"); if (hi) hi.value = "84.13";
+  }
+}
+
+function currentBoundConfig() {
+  const radio = document.querySelector('input[name="bound_mode"]:checked');
+  const m = radio ? radio.value : "sigma";
+  if (m !== "cdf") return { ..._SIGMA_BOUND_CFG };
+  let lo = parseFloat(($("in_lower_pct") || {}).value);
+  let hi = parseFloat(($("in_upper_pct") || {}).value);
+  if (!Number.isFinite(lo)) lo = 15.87;
+  if (!Number.isFinite(hi)) hi = 84.13;
+  lo = Math.max(0, Math.min(100, lo));
+  hi = Math.max(0, Math.min(100, hi));
+  if (lo > hi) [lo, hi] = [hi, lo];
+  const tag = n => String(n).replace(".", "p");
+  return {
+    mode: "cdf",
+    lo, hi,
+    percentiles: [lo, hi],
+    cdfLevels:   [lo, hi],
+    negLatex:  `CDF=${lo}%`,
+    posLatex:  `CDF=${hi}%`,
+    negCol:    `@${lo}%`,
+    posCol:    `@${hi}%`,
+    symCol:    "Δ½",
+    negCsv:    `lower_${tag(lo)}cdf`,
+    posCsv:    `upper_${tag(hi)}cdf`,
+    symCsv:    "half_width",
+    summary:   `CDF ${lo}% / ${hi}%`,
+    bandLabel: `CDF [${lo}%, ${hi}%] band`,
+  };
+}
+
 function randn() {
   let u, v, s;
   do { u = Math.random()*2-1; v = Math.random()*2-1; s = u*u+v*v; }
@@ -648,7 +709,10 @@ function getActiveParams() { return SCALINGS[currentScaling()]; }
 
 // ─────────────────── Monte Carlo core ────────────────────
 
-function monteCarloThreshold(inputs, params, dist, nsample) {
+function monteCarloThreshold(inputs, params, dist, nsample, percentiles) {
+  const pcts = (Array.isArray(percentiles) && percentiles.length === 2)
+    ? percentiles
+    : [15.87, 84.13];
   const keys = EXP_ORDER;
   const nk = keys.length;
   const bnli = inputs.beta_n / inputs.l_i;
@@ -694,8 +758,8 @@ function monteCarloThreshold(inputs, params, dist, nsample) {
   }
 
   const sorted = Float64Array.from(delta).sort();
-  const psigL = percentile(sorted, 15.87);
-  const psigU = percentile(sorted, 84.13);
+  const psigL = percentile(sorted, pcts[0]);
+  const psigU = percentile(sorted, pcts[1]);
 
   const bins = 1000;
   const mn = sorted[0], mx = sorted[sorted.length - 1];
@@ -809,6 +873,14 @@ function _renderPayloadSettings(forSave = false) {
   out.labelOverrides = Object.fromEntries(
     Object.entries(out.labelOverrides || {}).map(([k, v]) => [String(k), v])
   );
+  // Bound-mode label + CDF levels (used by plot_engine for the band title
+  // and to draw horizontal reference lines on the CDF subplot).
+  const rows = window._batchResults;
+  const refCfg = (rows && rows.length && rows[0].boundCfg)
+              || (overplotTraces[0] && overplotTraces[0].boundCfg)
+              || currentBoundConfig();
+  out.boundLabel = refCfg.bandLabel;
+  out.cdfLevels  = refCfg.cdfLevels;
   if (!forSave) out.format = "png";
   return out;
 }
@@ -872,9 +944,10 @@ function calcSingle() {
   const nsample = parseInt($("in_nsample").value) || 1000000;
   const sName   = currentScaling();
   const userLabel = $("in_label").value.trim();
+  const boundCfg  = currentBoundConfig();
 
   let res;
-  try { res = monteCarloThreshold(inputs, params, dist, nsample); }
+  try { res = monteCarloThreshold(inputs, params, dist, nsample, boundCfg.percentiles); }
   catch(e) { alert("Calculation error: " + e.message); return; }
 
   overplotCounter++;
@@ -884,6 +957,7 @@ function calcSingle() {
     label, centers:res.centers, pdf:res.pdf,
     deltaNom:res.deltaNom, psigL:res.psigL, psigU:res.psigU,
     inputs:{...inputs}, scaling:sName, dist, nsample, userLabel,
+    boundCfg,
   });
   renderOverplot();
   $("table-box").innerHTML = "";
@@ -973,6 +1047,7 @@ function _downloadDataUrl(dataUrl, filename) {
 
 function savePlotData() {
   if (!overplotTraces.length) { alert("No plot data to save."); return; }
+  const cfg = (overplotTraces[0] && overplotTraces[0].boundCfg) || currentBoundConfig();
   const maxBins = Math.max(...overplotTraces.map(t => t.centers.length));
   const hdrParts = ["bin_index"];
   for (const t of overplotTraces) {
@@ -982,7 +1057,7 @@ function savePlotData() {
   hdrParts.push("");
   hdrParts.push("trace","label","scaling","dist","nsample",
                  "n_e","B_T","beta_n","l_i","R_0","I_p",
-                 "delta_nominal","minus_1sigma","plus_1sigma","approx_sigma");
+                 "delta_nominal", cfg.negCsv, cfg.posCsv, cfg.symCsv);
   const lines = [hdrParts.join(",")];
   const nMeta = overplotTraces.length;
   for (let i = 0; i < Math.max(maxBins, nMeta); i++) {
@@ -1048,11 +1123,17 @@ function loadCSV(fileInput) {
         "time_ms","shot","shot_number","name","label",
         "delta","delta_nom","delta_nominal","minus","minus_1sigma",
         "plus","plus_1sigma","sigma","approx_sigma","row","bnli","beta_n_l_i",
+        "half_width",
       ]);
+      // Also skip the dynamic bound columns produced by either bound mode:
+      // legacy tail-style ("minus_5pct", "plus_2p5pct") and CDF-style
+      // ("lower_5cdf", "upper_84p13cdf").
+      const BOUND_COL_RE = /^(minus|plus|lower|upper)_[0-9]+(p[0-9]+)?(pct|cdf)$/;
       const extraCols = fields.filter(f => {
         const fl = (f || "").trim().toLowerCase();
         if (!fl) return false;
         if (KNOWN_COLS.has(fl)) return false;
+        if (BOUND_COL_RE.test(fl)) return false;
         if (f === labelCol) return false;
         // Must have at least one parseable value across the rows.
         return rows.some(r => Number.isFinite(parseFloat(r[f])));
@@ -1062,6 +1143,7 @@ function loadCSV(fileInput) {
       const dist    = $("sel_dist").value;
       const nsample = parseInt($("in_nsample").value) || 1000000;
       const sName   = currentScaling();
+      const boundCfg = currentBoundConfig();
       const results2 = []; const errors = [];
 
       for (let i = 0; i < rows.length; i++) {
@@ -1077,7 +1159,7 @@ function loadCSV(fileInput) {
           if ([ne,BT,bn,li,R0,Ip].some(isNaN)) throw new Error("non-numeric value");
           if (li === 0) throw new Error("l_i = 0");
           const inp = {n_e:ne, B_T:Math.abs(BT), beta_n:bn, l_i:li, R_0:R0, I_p:Math.abs(Ip)};
-          const mc = monteCarloThreshold(inp, params, dist, nsample);
+          const mc = monteCarloThreshold(inp, params, dist, nsample, boundCfg.percentiles);
           const minus = mc.deltaNom - mc.psigL, plus = mc.psigU - mc.deltaNom;
           let tms = null;
           if (timeCol) {
@@ -1097,6 +1179,10 @@ function loadCSV(fileInput) {
             // Keep MC data so we can re-plot selected rows without redoing MC.
             centers: mc.centers, pdf: mc.pdf,
             deltaNom: mc.deltaNom, psigL: mc.psigL, psigU: mc.psigU,
+            // Preserve the raw input row verbatim so exportCSV can emit
+            // every column that was present in the input CSV.
+            raw: { ...r },
+            boundCfg,
             inputs: {...inp},
             scaling: sName, dist, nsample,
             time_ms: tms, shot: shotVal,
@@ -1123,7 +1209,7 @@ function loadCSV(fileInput) {
       ).join("");
       const summaryHtml =
           `<p class="summary">Processed ${results2.length} row(s) | Scaling: ${sName} | `
-        + `MC: ${nsample.toLocaleString()} | dist: ${dist} &nbsp;`
+        + `MC: ${nsample.toLocaleString()} | dist: ${dist} | bounds: ${boundCfg.summary} &nbsp;`
         + `<button onclick="plotSelectedRows()">Plot Selected Rows</button> `
         + `<button onclick="plotDeltaVsTime()"${haveTimes ? "" : " disabled"} `
         + `title="${haveTimes ? "" : "CSV needs a time_ms column on every row"}">`
@@ -1132,7 +1218,8 @@ function loadCSV(fileInput) {
         + `<p class="summary" style="margin-top:0">`
         + `<span style="font-style:normal">Stack with δ vs time:</span> ${stackChecks}</p>`;
 
-      const cols = ["sel","row","label","n_e","B_T","β_n","l_i","β_n/l_i","R_0","I_p","δ_nom","−1σ","+1σ","≈σ"];
+      const cols = ["sel","row","label","n_e","B_T","β_n","l_i","β_n/l_i","R_0","I_p","δ_nom",
+                    boundCfg.negCol, boundCfg.posCol, boundCfg.symCol];
       let tableHtml = `<table id="batch-table"><tr>`
               + `<th><input type="checkbox" id="row-select-all" onchange="toggleAllRowSelect(this)"></th>`
               + cols.slice(1).map(c=>`<th>${c}</th>`).join("")
@@ -1155,6 +1242,7 @@ function loadCSV(fileInput) {
       overplotTraces = [];
 
       window._batchResults = results2;
+      window._batchInputFields = (fields || []).filter(Boolean);
     }
   });
 }
@@ -1249,13 +1337,41 @@ async function plotDeltaVsTime() {
 function exportCSV() {
   const rows = window._batchResults;
   if (!rows || !rows.length) { alert("No results to export."); return; }
-  const hdr = "label,n_e,B_T,beta_n,l_i,beta_n_l_i,R_0,I_p,delta_nominal,minus_1sigma,plus_1sigma,approx_sigma";
-  const lines = [hdr];
+  const cfg = (rows[0] && rows[0].boundCfg) || currentBoundConfig();
+
+  // CSV-quote any value that contains a comma, quote, or newline. Numbers
+  // and bare strings pass through as-is.
+  const csvCell = v => {
+    if (v === null || v === undefined) return "";
+    const s = String(v);
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+
+  // Computed columns the export always populates. When an input column has
+  // the same name, the computed value wins (preserves input position).
+  const computed = [
+    ["beta_n_l_i",    r => r.bnli],
+    ["delta_nominal", r => r.delta],
+    [cfg.negCsv,      r => r.minus],
+    [cfg.posCsv,      r => r.plus],
+    [cfg.symCsv,      r => r.sigma],
+  ];
+  const computedMap = new Map(computed);
+
+  // Preserve every input column in its original order. Append any computed
+  // columns that weren't present in the input header.
+  const inputCols = (window._batchInputFields || []).slice();
+  const appended  = computed.map(([n]) => n).filter(n => !inputCols.includes(n));
+  const fieldnames = inputCols.concat(appended);
+
+  const lines = [fieldnames.map(csvCell).join(",")];
   for (const r of rows) {
-    // Wrap label in quotes in case it contains commas
-    const safeLabel = `"${(r.label||"").replace(/"/g,'""')}"`;
-    lines.push([safeLabel,r.n_e,r.B_T,r.beta_n,r.l_i,r.bnli,r.R_0,r.I_p,
-                r.delta,r.minus,r.plus,r.sigma].join(","));
+    const raw = r.raw || {};
+    const out = fieldnames.map(name => {
+      if (computedMap.has(name)) return computedMap.get(name)(r);
+      return raw[name] !== undefined ? raw[name] : "";
+    });
+    lines.push(out.map(csvCell).join(","));
   }
   const blob = new Blob([lines.join("\n")], {type:"text/csv"});
   const a = document.createElement("a");
