@@ -603,8 +603,8 @@ const _SIGMA_BOUND_CFG = {
   negCol:    "−1σ",
   posCol:    "+1σ",
   symCol:    "≈σ",
-  negCsv:    "minus_1sigma",
-  posCsv:    "plus_1sigma",
+  negCsv:    "lower_1sigma",
+  posCsv:    "upper_1sigma",
   symCsv:    "approx_sigma",
   summary:   "≈±1σ (CDF 15.87 / 84.13 %)",
   bandLabel: "≈±1σ band",
@@ -1094,10 +1094,10 @@ function savePlotData() {
     parts.push("");
     if (i < nMeta) {
       const t = overplotTraces[i]; const inp = t.inputs;
-      const minus = t.deltaNom - t.psigL, plus = t.psigU - t.deltaNom;
+      const halfWidth = (t.psigU - t.psigL) / 2;
       parts.push(t.label.replace(/,/g,";"), t.userLabel||"", t.scaling, t.dist, t.nsample,
         inp.n_e, inp.B_T, inp.beta_n, inp.l_i, inp.R_0, inp.I_p,
-        t.deltaNom, minus, plus, (minus+plus)/2);
+        t.deltaNom, t.psigL, t.psigU, halfWidth);
     } else { parts.push("","","","","","","","","","","","","","",""); }
     lines.push(parts.join(","));
   }
@@ -1146,7 +1146,8 @@ function loadCSV(fileInput) {
         "n_e","b_t","beta_n","l_i","r_0","i_p",
         "time_ms","shot","shot_number","name","label",
         "delta","delta_nom","delta_nominal","minus","minus_1sigma",
-        "plus","plus_1sigma","sigma","approx_sigma","row","bnli","beta_n_l_i",
+        "plus","plus_1sigma","lower_1sigma","upper_1sigma",
+        "sigma","approx_sigma","half_iqr","row","bnli","beta_n_l_i",
         "half_width",
       ]);
       // Also skip the dynamic bound columns produced by either bound mode:
@@ -1256,7 +1257,7 @@ function loadCSV(fileInput) {
           <td>${r.beta_n.toPrecision(4)}</td><td>${r.l_i.toPrecision(4)}</td>
           <td>${r.bnli.toPrecision(4)}</td><td>${r.R_0.toPrecision(4)}</td>
           <td>${r.I_p.toPrecision(4)}</td><td>${fmtE(r.delta)}</td>
-          <td>${fmtE(r.minus)}</td><td>${fmtE(r.plus)}</td><td>${fmtE(r.sigma)}</td>
+          <td>${fmtE(r.psigL)}</td><td>${fmtE(r.psigU)}</td><td>${fmtE(r.sigma)}</td>
         </tr>`;
       }
       tableHtml += `</table>`;
@@ -1376,8 +1377,8 @@ function exportCSV() {
   const computed = [
     ["beta_n_l_i",    r => r.bnli],
     ["delta_nominal", r => r.delta],
-    [cfg.negCsv,      r => r.minus],
-    [cfg.posCsv,      r => r.plus],
+    [cfg.negCsv,      r => r.psigL],
+    [cfg.posCsv,      r => r.psigU],
     [cfg.symCsv,      r => r.sigma],
   ];
   const computedMap = new Map(computed);
