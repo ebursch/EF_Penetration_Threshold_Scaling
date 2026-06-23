@@ -606,16 +606,38 @@ const _SIGMA_BOUND_CFG = {
   negCsv:    "minus_1sigma",
   posCsv:    "plus_1sigma",
   symCsv:    "approx_sigma",
-  summary:   "±1σ (CDF 15.87 / 84.13 %)",
-  bandLabel: "±1σ band",
+  summary:   "≈±1σ (CDF 15.87 / 84.13 %)",
+  bandLabel: "≈±1σ band",
 };
 
-// When the user switches to ±1σ, write the canonical Gaussian CDF
-// percentiles (15.87 / 84.13) into the lower/upper boxes. Custom CDF
-// values typed by the user are preserved when switching back.
+// Default bound mode: 25th / 75th CDF percentiles (interquartile range).
+const _QUARTILE_BOUND_CFG = {
+  mode: "quartile",
+  percentiles: [25, 75],
+  cdfLevels:   [25, 75],
+  negLatex:  "25%",
+  posLatex:  "75%",
+  negCol:    "25%",
+  posCol:    "75%",
+  symCol:    "½IQR",
+  negCsv:    "lower_25cdf",
+  posCsv:    "upper_75cdf",
+  symCsv:    "half_iqr",
+  summary:   "25 / 75 % (IQR)",
+  bandLabel: "25–75% band",
+};
+
+// When the user switches to a preset bound mode, write its canonical CDF
+// percentiles into the lower/upper boxes (25 / 75 for the quartile default,
+// 15.87 / 84.13 for ≈±1σ). Custom CDF values typed by the user are preserved
+// when switching back.
 function onBoundModeChange() {
   const radio = document.querySelector('input[name="bound_mode"]:checked');
-  if (radio && radio.value === "sigma") {
+  if (!radio) return;
+  if (radio.value === "quartile") {
+    const lo = $("in_lower_pct"); if (lo) lo.value = "25";
+    const hi = $("in_upper_pct"); if (hi) hi.value = "75";
+  } else if (radio.value === "sigma") {
     const lo = $("in_lower_pct"); if (lo) lo.value = "15.87";
     const hi = $("in_upper_pct"); if (hi) hi.value = "84.13";
   }
@@ -623,8 +645,10 @@ function onBoundModeChange() {
 
 function currentBoundConfig() {
   const radio = document.querySelector('input[name="bound_mode"]:checked');
-  const m = radio ? radio.value : "sigma";
-  if (m !== "cdf") return { ..._SIGMA_BOUND_CFG };
+  const m = radio ? radio.value : "quartile";
+  if (m === "sigma")    return { ..._SIGMA_BOUND_CFG };
+  if (m === "quartile") return { ..._QUARTILE_BOUND_CFG };
+  if (m !== "cdf")      return { ..._QUARTILE_BOUND_CFG };
   let lo = parseFloat(($("in_lower_pct") || {}).value);
   let hi = parseFloat(($("in_upper_pct") || {}).value);
   if (!Number.isFinite(lo)) lo = 15.87;
