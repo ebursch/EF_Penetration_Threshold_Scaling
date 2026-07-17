@@ -147,8 +147,21 @@ function _renderLegendEditor() {
   rows.innerHTML = "";
   for (let i = 0; i < overplotTraces.length; i++) {
     const defaultLabel = overplotTraces[i].label;
+    const hidden = !!overplotTraces[i].hidden;
     const row = document.createElement("div");
-    row.className = "ple-row";
+    row.className = "ple-row" + (hidden ? " hidden-trace" : "");
+
+    // Show / hide toggle — temporarily drops the run from the plot + stats
+    // without deleting its data.
+    const showLabel = document.createElement("label");
+    showLabel.className = "ple-show";
+    showLabel.title = "Show / hide this run";
+    const showCb = document.createElement("input");
+    showCb.type = "checkbox";
+    showCb.checked = !hidden;
+    showCb.dataset.idx = i;
+    showCb.addEventListener("change", () => toggleTraceHidden(i, !showCb.checked));
+    showLabel.appendChild(showCb);
 
     const colorInput = document.createElement("input");
     colorInput.type = "color";
@@ -172,10 +185,47 @@ function _renderLegendEditor() {
       renderOverplot();
     });
 
+    // Remove — deletes this run entirely.
+    const removeBtn = document.createElement("button");
+    removeBtn.type = "button";
+    removeBtn.className = "ple-remove";
+    removeBtn.textContent = "✕";
+    removeBtn.title = "Remove this run";
+    removeBtn.dataset.idx = i;
+    removeBtn.addEventListener("click", () => removeTrace(i));
+
+    row.appendChild(showLabel);
     row.appendChild(colorInput);
     row.appendChild(labelInput);
+    row.appendChild(removeBtn);
     rows.appendChild(row);
   }
+}
+
+// Temporarily drop / restore a single run from the plot and stats without
+// deleting its data. State lives on the trace so re-renders preserve it.
+function toggleTraceHidden(i, on) {
+  if (!overplotTraces[i]) return;
+  overplotTraces[i].hidden = !!on;
+  renderOverplot();
+}
+
+// Delete a single run. The per-index override maps (colorOverrides /
+// labelOverrides) must be reindexed so entries stay aligned with the shifted
+// overplotTraces array.
+function removeTrace(i) {
+  if (i < 0 || i >= overplotTraces.length) return;
+  overplotTraces.splice(i, 1);
+  for (const map of [plotSettings.colorOverrides, plotSettings.labelOverrides]) {
+    if (!map) continue;
+    delete map[i];
+    const keys = Object.keys(map)
+      .map(k => parseInt(k, 10))
+      .filter(k => Number.isFinite(k) && k > i)
+      .sort((a, b) => a - b);
+    for (const k of keys) { map[k - 1] = map[k]; delete map[k]; }
+  }
+  renderOverplot();
 }
 
 // Default matplotlib-ish palette so we can prefill the inline color pickers.
@@ -217,7 +267,7 @@ function _renderStatsPanel() {
   const body = $("ps-stats-rows");
   if (!wrap || !body) return;
 
-  if (lastPlotKind !== "overplot" || !overplotTraces.length) {
+  if (lastPlotKind !== "overplot" || !overplotTraces.some(t => !t.hidden)) {
     wrap.style.display = "none";
     body.innerHTML = "";
     return;
@@ -233,6 +283,7 @@ function _renderStatsPanel() {
   let html = `<table><thead><tr>${header.map(h => `<th>${h}</th>`).join("")}</tr></thead><tbody>`;
   for (let i = 0; i < overplotTraces.length; i++) {
     const t = overplotTraces[i];
+    if (t.hidden) continue;   // keep the stats table in sync with the plot
     const labelText = plotSettings.labelOverrides[i] || t.label;
     const color = _colorToHex(
       plotSettings.colorOverrides[i] ||
@@ -578,6 +629,108 @@ const EXP_IDS   = {
 let SCALINGS = JSON.parse(JSON.stringify(BUILTIN_SCALINGS));
 SCALINGS["Custom"] = JSON.parse(JSON.stringify(SCALINGS["2026 O,L WLS"]));
 
+// ─────────────────── Custom scaling variables ────────────
+// User-added factors x^(α±σ) that multiply into δ on top of the fixed 6-term
+// power law. Values are strings (mirrors the raw <input> contents). The
+// exponent (α, σ) is part of the scaling definition; the value (x) is an
+// operating-point quantity read per-run.
+let extraVarState = [];   // [{name, value, exp, unc}] as strings
+
+function renderExtraVarRows() {
+  const body = $("extra-vars-body");
+  if (!body) return;
+  body.innerHTML = "";
+  extraVarState.forEach((v, i) => {
+    const tr = document.createElement("tr");
+    const mkCell = (key, ph, type) => {
+      const td = document.createElement("td");
+      const inp = document.createElement("input");
+      inp.type = type;
+      if (type === "number") inp.step = "any";
+      inp.value = v[key] ?? "";
+      inp.placeholder = ph;
+      inp.addEventListener("input", () => {
+        if (extraVarState[i]) extraVarState[i][key] = inp.value;
+        onExpChanged();
+      });
+      td.appendChild(inp);
+      return td;
+    };
+    tr.appendChild(mkCell("name",  "e.g. q_95", "text"));
+    tr.appendChild(mkCell("value", "x",         "number"));
+    tr.appendChild(mkCell("exp",   "α",         "number"));
+    tr.appendChild(mkCell("unc",   "±",         "number"));
+    const tdBtn = document.createElement("td");
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "ple-remove";
+    btn.textContent = "✕";
+    btn.title = "Remove variable";
+    btn.addEventListener("click", () => {
+      extraVarState.splice(i, 1);
+      renderExtraVarRows();
+      onExpChanged();
+    });
+    tdBtn.appendChild(btn);
+    tr.appendChild(tdBtn);
+    body.appendChild(tr);
+  });
+}
+
+function addExtraVar(spec) {
+  extraVarState.push({
+    name:  (spec && spec.name  != null) ? String(spec.name)  : "",
+    value: (spec && spec.value != null) ? String(spec.value) : "",
+    exp:   (spec && spec.exp   != null) ? String(spec.exp)   : "",
+    unc:   (spec && spec.unc   != null) ? String(spec.unc)   : "",
+  });
+  renderExtraVarRows();
+  onExpChanged();
+}
+
+// Reset the custom-variable rows to match a scaling's stored specs. The
+// operating value (x) is not part of a scaling, so it starts blank.
+function setExtraVarsFromScaling(scaling) {
+  const extras = (scaling && scaling.extras) || [];
+  extraVarState = extras.map(e => ({
+    name: e.name != null ? String(e.name) : "",
+    value: "",
+    exp: e.exp != null ? String(e.exp) : "",
+    unc: e.unc != null ? String(e.unc) : "",
+  }));
+  renderExtraVarRows();
+}
+
+// Scaling-level specs (name + exponent + uncertainty), skipping incomplete rows.
+function readExtraSpecs() {
+  const out = [];
+  for (const v of extraVarState) {
+    const name = (v.name || "").trim();
+    if (!name) continue;
+    const exp = parseFloat(v.exp), unc = parseFloat(v.unc);
+    if (!Number.isFinite(exp) || !Number.isFinite(unc)) continue;
+    out.push({ name, exp, unc });
+  }
+  return out;
+}
+
+// Fully-resolved variables for a single-point calc; value (x) must be present.
+// Returns {vars} or {error}.
+function readExtraVarsForCalc() {
+  const vars = [];
+  for (const v of extraVarState) {
+    const name = (v.name || "").trim();
+    if (!name) continue;
+    const exp = parseFloat(v.exp), unc = parseFloat(v.unc), value = parseFloat(v.value);
+    if (!Number.isFinite(exp) || !Number.isFinite(unc))
+      return { error: `Custom variable "${name}": exponent and ± uncertainty must be numbers.` };
+    if (!Number.isFinite(value) || value <= 0)
+      return { error: `Custom variable "${name}": value (x) must be a positive number.` };
+    vars.push({ name, value, exp, unc });
+  }
+  return { vars };
+}
+
 // ─────────────────── Overplot state ──────────────────────
 const PLOT_COLORS = [
   "steelblue","#e05050","#2ca02c","#d4a017","#9467bd",
@@ -733,7 +886,24 @@ function getActiveParams() { return SCALINGS[currentScaling()]; }
 
 // ─────────────────── Monte Carlo core ────────────────────
 
-function monteCarloThreshold(inputs, params, dist, nsample, percentiles) {
+// One MC random draw per exponent, matching the chosen distribution.
+function _mcRandArray(dist, nsample) {
+  let r;
+  if (dist === "flat") {
+    r = new Float64Array(nsample);
+    for (let i = 0; i < nsample; i++) r[i] = Math.random();
+  } else {
+    r = randnArray(nsample);
+    if (dist === "normal truncated") {
+      for (let i = 0; i < nsample; i++) {
+        while (Math.abs(r[i]) > 1.5) r[i] = randn();
+      }
+    }
+  }
+  return r;
+}
+
+function monteCarloThreshold(inputs, params, dist, nsample, percentiles, extraVars) {
   const pcts = (Array.isArray(percentiles) && percentiles.length === 2)
     ? percentiles
     : [15.87, 84.13];
@@ -742,21 +912,7 @@ function monteCarloThreshold(inputs, params, dist, nsample, percentiles) {
   const bnli = inputs.beta_n / inputs.l_i;
 
   const rands = [];
-  for (let ki = 0; ki < nk; ki++) {
-    let r;
-    if (dist === "flat") {
-      r = new Float64Array(nsample);
-      for (let i = 0; i < nsample; i++) r[i] = Math.random();
-    } else {
-      r = randnArray(nsample);
-      if (dist === "normal truncated") {
-        for (let i = 0; i < nsample; i++) {
-          while (Math.abs(r[i]) > 1.5) r[i] = randn();
-        }
-      }
-    }
-    rands.push(r);
-  }
+  for (let ki = 0; ki < nk; ki++) rands.push(_mcRandArray(dist, nsample));
 
   const alphaV = keys.map(k => params[k][0]);
   const alphaU = keys.map(k => params[k][1]);
@@ -779,6 +935,15 @@ function monteCarloThreshold(inputs, params, dist, nsample, percentiles) {
       deltaNom *= Math.pow(x, nom);
       for (let i = 0; i < nsample; i++) delta[i] *= Math.pow(x, nom + unc * r[i]);
     }
+  }
+
+  // User-added variables: each folds an extra x^(α±σ) factor into δ.
+  for (const ev of (extraVars || [])) {
+    const x = ev.value, nom = ev.exp, unc = ev.unc;
+    if (!(x > 0) || !Number.isFinite(nom) || !Number.isFinite(unc)) continue;
+    const r = _mcRandArray(dist, nsample);
+    deltaNom *= Math.pow(x, nom);
+    for (let i = 0; i < nsample; i++) delta[i] *= Math.pow(x, nom + unc * r[i]);
   }
 
   const sorted = Float64Array.from(delta).sort();
@@ -818,7 +983,12 @@ function formulaLatex(name) {
   if (name === "2020 O,L WLS")
     return `\\delta_{\\text{2020 O,L WLS}} = 10^{-3.46\\pm0.05}\\,n_e^{0.64\\pm0.06}\\,B_T^{-1.14\\pm0.08}\\,R_0^{0.20\\pm0.07}\\left(\\frac{\\beta_n}{l_i}\\right)^{0.15\\pm0.07}\\,|I_p|^{0.00\\pm0.00}`;
   const safe = name.replace(/_/g, "\\_");
-  return `\\delta_{\\text{${safe}}} = 10^{${f(p.C[0],p.C[1])}}\\left(\\frac{\\beta_n}{l_i}\\right)^{${f(p.bnli[0],p.bnli[1])}}\\,|I_p|^{${f(p.ip[0],p.ip[1])}}\\,R_0^{${f(p.R[0],p.R[1])}}\\,n_e^{${f(p.ne[0],p.ne[1])}}\\,|B_T|^{${f(p.BT[0],p.BT[1])}}`;
+  let extra = "";
+  for (const e of (p.extras || [])) {
+    const nm = String(e.name).replace(/_/g, "\\_");
+    extra += `\\,\\text{${nm}}^{${f(e.exp, e.unc)}}`;
+  }
+  return `\\delta_{\\text{${safe}}} = 10^{${f(p.C[0],p.C[1])}}\\left(\\frac{\\beta_n}{l_i}\\right)^{${f(p.bnli[0],p.bnli[1])}}\\,|I_p|^{${f(p.ip[0],p.ip[1])}}\\,R_0^{${f(p.R[0],p.R[1])}}\\,n_e^{${f(p.ne[0],p.ne[1])}}\\,|B_T|^{${f(p.BT[0],p.BT[1])}}${extra}`;
 }
 
 function renderFormula() {
@@ -833,6 +1003,7 @@ let _updatingExp = false;
 function onExpChanged() {
   if (_updatingExp) return;
   const p = readExponents(); if (!p) return;
+  p.extras = readExtraSpecs();
   SCALINGS["Custom"] = p;
   $("sel_scaling").value = "Custom";
   renderFormula();
@@ -840,6 +1011,7 @@ function onExpChanged() {
 function onScalingSelected() {
   const name = currentScaling();
   if (name !== "Custom") { _updatingExp = true; writeExponents(SCALINGS[name]); _updatingExp = false; }
+  setExtraVarsFromScaling(SCALINGS[name]);
   renderFormula();
 }
 
@@ -919,9 +1091,7 @@ async function renderOverplot() {
     _renderStatsPanel();
     return;
   }
-  const seq = ++_renderSeq;
-  _setPlotBusy("Rendering…");
-  // Marshal traces (Float64Array → plain arrays)
+  // Marshal traces (Float64Array → plain arrays), skipping hidden runs.
   const traces = overplotTraces.map((t, i) => ({
     label:   plotSettings.labelOverrides[i] || t.label,
     centers: Array.from(t.centers),
@@ -930,7 +1100,18 @@ async function renderOverplot() {
     psigL:   t.psigL,
     psigU:   t.psigU,
     color:   plotSettings.colorOverrides[i] || null,
-  }));
+    hidden:  !!t.hidden,
+  })).filter(t => !t.hidden);
+  // All runs hidden → clear the figure but keep the editor/stats so the user
+  // can toggle runs back on.
+  if (!traces.length) {
+    _showPlotImage(null);
+    _renderLegendEditor();
+    _renderStatsPanel();
+    return;
+  }
+  const seq = ++_renderSeq;
+  _setPlotBusy("Rendering…");
   try {
     const dataUrl = await _runPythonRender("render_overplot", {
       data: traces,
@@ -970,8 +1151,12 @@ function calcSingle() {
   const userLabel = $("in_label").value.trim();
   const boundCfg  = currentBoundConfig();
 
+  const extraRead = readExtraVarsForCalc();
+  if (extraRead.error) { alert(extraRead.error); return; }
+  const extraVars = extraRead.vars;
+
   let res;
-  try { res = monteCarloThreshold(inputs, params, dist, nsample, boundCfg.percentiles); }
+  try { res = monteCarloThreshold(inputs, params, dist, nsample, boundCfg.percentiles, extraVars); }
   catch(e) { alert("Calculation error: " + e.message); return; }
 
   overplotCounter++;
@@ -981,7 +1166,7 @@ function calcSingle() {
     label, centers:res.centers, pdf:res.pdf,
     deltaNom:res.deltaNom, psigL:res.psigL, psigU:res.psigU,
     inputs:{...inputs}, scaling:sName, dist, nsample, userLabel,
-    boundCfg,
+    boundCfg, extras: extraVars,
   });
   renderOverplot();
   $("table-box").innerHTML = "";
@@ -1024,7 +1209,9 @@ async function _doSavePlotImage() {
         pdf:     Array.from(t.pdf),
         deltaNom: t.deltaNom, psigL: t.psigL, psigU: t.psigU,
         color:   plotSettings.colorOverrides[i] || null,
-      }));
+        hidden:  !!t.hidden,
+      })).filter(t => !t.hidden);
+      if (!traces.length) { alert("All runs are hidden — nothing to save."); return; }
       _setPlotBusy(`Rendering ${fmt.toUpperCase()}…`);
       dataUrl = await _runPythonRender("render_overplot", {
         data: traces,
@@ -1070,35 +1257,49 @@ function _downloadDataUrl(dataUrl, filename) {
 }
 
 function savePlotData() {
-  if (!overplotTraces.length) { alert("No plot data to save."); return; }
-  const cfg = (overplotTraces[0] && overplotTraces[0].boundCfg) || currentBoundConfig();
-  const maxBins = Math.max(...overplotTraces.map(t => t.centers.length));
+  // Only export visible (non-hidden) runs so the CSV matches what's plotted.
+  const traces = overplotTraces.filter(t => !t.hidden);
+  if (!traces.length) { alert("No plot data to save."); return; }
+  const cfg = (traces[0] && traces[0].boundCfg) || currentBoundConfig();
+  const maxBins = Math.max(...traces.map(t => t.centers.length));
+  // Union of custom-variable names across the exported runs → one value column each.
+  const extraNames = [];
+  for (const t of traces) for (const e of (t.extras || [])) {
+    if (e && e.name && !extraNames.includes(e.name)) extraNames.push(e.name);
+  }
   const hdrParts = ["bin_index"];
-  for (const t of overplotTraces) {
+  for (const t of traces) {
     const s = t.label.replace(/,/g, ";");
     hdrParts.push(`${s}_delta`, `${s}_pdf`);
   }
   hdrParts.push("");
   hdrParts.push("trace","label","scaling","dist","nsample",
                  "n_e","B_T","beta_n","l_i","R_0","I_p",
-                 "delta_nominal", cfg.negCsv, cfg.posCsv, cfg.symCsv);
+                 "delta_nominal", cfg.negCsv, cfg.posCsv, cfg.symCsv,
+                 ...extraNames);
   const lines = [hdrParts.join(",")];
-  const nMeta = overplotTraces.length;
+  const nMeta = traces.length;
   for (let i = 0; i < Math.max(maxBins, nMeta); i++) {
     const parts = [];
     parts.push(i < maxBins ? i : "");
-    for (const t of overplotTraces) {
+    for (const t of traces) {
       if (i < t.centers.length) { parts.push(t.centers[i], t.pdf[i]); }
       else { parts.push("",""); }
     }
     parts.push("");
     if (i < nMeta) {
-      const t = overplotTraces[i]; const inp = t.inputs;
+      const t = traces[i]; const inp = t.inputs;
       const halfWidth = (t.psigU - t.psigL) / 2;
+      const extraVals = (t.extras || []).reduce((m, e) => {
+        if (e && e.name) m[e.name] = e.value; return m;
+      }, {});
       parts.push(t.label.replace(/,/g,";"), t.userLabel||"", t.scaling, t.dist, t.nsample,
         inp.n_e, inp.B_T, inp.beta_n, inp.l_i, inp.R_0, inp.I_p,
-        t.deltaNom, t.psigL, t.psigU, halfWidth);
-    } else { parts.push("","","","","","","","","","","","","","",""); }
+        t.deltaNom, t.psigL, t.psigU, halfWidth,
+        ...extraNames.map(n => (n in extraVals ? extraVals[n] : "")));
+    } else {
+      parts.push(...Array(15 + extraNames.length).fill(""));
+    }
     lines.push(parts.join(","));
   }
   const blob = new Blob([lines.join("\n")], {type:"text/csv"});
@@ -1150,6 +1351,18 @@ function loadCSV(fileInput) {
         "sigma","approx_sigma","half_iqr","row","bnli","beta_n_l_i",
         "half_width",
       ]);
+      // Custom scaling variables: resolve each to a matching CSV column
+      // (case-insensitive by name) or fall back to its manual value. Matched
+      // columns are marked known so they aren't also offered as stack subplots.
+      const scaleExtraSpecs = extraVarState.map(v => ({
+        name: (v.name || "").trim(),
+        exp: parseFloat(v.exp), unc: parseFloat(v.unc), manual: parseFloat(v.value),
+      })).filter(s => s.name && Number.isFinite(s.exp) && Number.isFinite(s.unc));
+      const scaleExtraColMap = {};
+      for (const s of scaleExtraSpecs) {
+        const found = fields.find(f => f.trim().toLowerCase() === s.name.toLowerCase());
+        if (found) { scaleExtraColMap[s.name] = found; KNOWN_COLS.add(found.trim().toLowerCase()); }
+      }
       // Also skip the dynamic bound columns produced by either bound mode:
       // legacy tail-style ("minus_5pct", "plus_2p5pct") and CDF-style
       // ("lower_5cdf", "upper_84p13cdf").
@@ -1184,7 +1397,15 @@ function loadCSV(fileInput) {
           if ([ne,BT,bn,li,R0,Ip].some(isNaN)) throw new Error("non-numeric value");
           if (li === 0) throw new Error("l_i = 0");
           const inp = {n_e:ne, B_T:Math.abs(BT), beta_n:bn, l_i:li, R_0:R0, I_p:Math.abs(Ip)};
-          const mc = monteCarloThreshold(inp, params, dist, nsample, boundCfg.percentiles);
+          const rowScaleExtras = [];
+          for (const s of scaleExtraSpecs) {
+            const col = scaleExtraColMap[s.name];
+            const x = col ? parseFloat(r[col]) : s.manual;
+            if (!Number.isFinite(x) || x <= 0)
+              throw new Error(`custom variable "${s.name}" needs a positive value`);
+            rowScaleExtras.push({ name: s.name, value: x, exp: s.exp, unc: s.unc });
+          }
+          const mc = monteCarloThreshold(inp, params, dist, nsample, boundCfg.percentiles, rowScaleExtras);
           const minus = mc.deltaNom - mc.psigL, plus = mc.psigU - mc.deltaNom;
           let tms = null;
           if (timeCol) {
@@ -1212,6 +1433,7 @@ function loadCSV(fileInput) {
             scaling: sName, dist, nsample,
             time_ms: tms, shot: shotVal,
             extras,
+            scaleExtras: rowScaleExtras,   // resolved custom scaling variables
           });
         } catch(e) { errors.push(`Row ${i+1}: ${e.message}`); }
       }
@@ -1312,6 +1534,7 @@ function plotSelectedRows() {
       deltaNom: r.deltaNom, psigL: r.psigL, psigU: r.psigU,
       inputs: {...r.inputs}, scaling: r.scaling, dist: r.dist,
       nsample: r.nsample, userLabel: r.label,
+      boundCfg: r.boundCfg, extras: r.scaleExtras || [],
     });
   }
   return renderOverplot();
@@ -1436,6 +1659,7 @@ function refreshDropdown() {
 function saveScaling() {
   const p = readExponents();
   if (!p) { alert("All exponent fields must be valid numbers."); return; }
+  p.extras = readExtraSpecs();
   const name = prompt("Enter a name for this scaling:");
   if (!name || !name.trim()) return;
   const n = name.trim();
@@ -1475,6 +1699,7 @@ function doLoadSaved() {
   refreshDropdown();
   $("sel_scaling").value = name;
   _updatingExp = true; writeExponents(p); _updatingExp = false;
+  setExtraVarsFromScaling(p);
   renderFormula();
   $("load-dialog").close();
 }
@@ -1597,6 +1822,7 @@ function getSavedInputs() {
   _updatingExp = true;
   writeExponents(SCALINGS[currentScaling()]);
   _updatingExp = false;
+  setExtraVarsFromScaling(SCALINGS[currentScaling()]);
   toggleMode();
   _writeInlinePlotControls();
   const waitKatex = setInterval(() => {

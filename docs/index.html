@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Error Field Penetration Threshold Calculator</title>
-  <link rel="stylesheet" href="style.css?v=15" />
+  <link rel="stylesheet" href="style.css?v=16" />
   <link rel="stylesheet"
         href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css" />
   <script defer
@@ -184,6 +184,26 @@
       </div>
     </fieldset>
   </div>
+
+  <!-- ── Custom scaling variables ──────────────────── -->
+  <fieldset class="panel" id="extra-vars-panel">
+    <legend>Custom Variables (add → Custom)</legend>
+    <table class="input-table" id="extra-vars-table">
+      <thead>
+        <tr><th>Name</th><th>Value (x)</th><th>Exponent</th>
+            <th>± Uncertainty</th><th></th></tr>
+      </thead>
+      <tbody id="extra-vars-body"></tbody>
+    </table>
+    <div class="exp-buttons">
+      <button type="button" onclick="addExtraVar()">+ Add Variable</button>
+    </div>
+    <p class="ps-note" style="margin:6px 0 0">
+      Each variable multiplies the threshold by <em>x</em><sup>α±σ</sup>.
+      In batch (CSV) mode, a variable whose <em>Name</em> matches a CSV column
+      uses that column's per-row value; otherwise the <em>Value</em> here is used.
+    </p>
+  </fieldset>
 
   <!-- ── Settings ──────────────────────────────────── -->
   <fieldset class="panel">
@@ -551,6 +571,6 @@
       <button onclick="document.getElementById('load-inputs-dialog').close()">Cancel</button>
     </div>
   </dialog>
-<script src="app.js?v=15"></script>
+<script src="app.js?v=16"></script>
 </body>
 </html>
